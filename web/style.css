@@ -159,9 +159,9 @@ html, body {
 #feed li .tx { overflow: hidden; text-overflow: ellipsis; flex: 1; }
 #feed li .dur { color: #45536a; flex: none; font-size: 10.5px; }
 
-/* expanded feed rows (follow mode / hover): full text, wrapped, diff-colored */
-#feed li .tx.x {
-  white-space: pre-wrap;
+/* expanded rows (follow mode / dwell-hover): full text, wrapped, diff-colored */
+.tx.x {
+  white-space: pre-wrap !important;
   word-break: break-all;
   color: #d7e2ef;
 }
@@ -238,12 +238,6 @@ html, body {
   text-overflow: ellipsis;
 }
 #popover li:hover { background: #121a28; }
-#popover li:hover .tx {
-  /* hover reveals the whole line, wrapped */
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: #d7e2ef;
-}
 #popover button {
   background: none;
   border: 1px solid #223049;
@@ -331,11 +325,6 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-#pins li:hover .tx {
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: #d7e2ef;
 }
 #pins li button {
   background: none;

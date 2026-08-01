@@ -161,6 +161,19 @@ const rowSummary = new WeakMap<HTMLLIElement, string>();
 let following = false;
 const followExpanded: HTMLLIElement[] = [];
 const FOLLOW_KEEP_EXPANDED = 12;
+const HOVER_EXPAND_MS = 1000; // dwell time before a hovered line expands
+
+/** Expand `tx` after a 1s dwell; collapse (via onLeave) when the pointer leaves. */
+function attachDelayedExpand(el: HTMLElement, onExpand: () => void, onLeave: () => void): void {
+  let timer = 0;
+  el.addEventListener('mouseenter', () => {
+    timer = window.setTimeout(onExpand, HOVER_EXPAND_MS);
+  });
+  el.addEventListener('mouseleave', () => {
+    clearTimeout(timer);
+    onLeave();
+  });
+}
 
 const followBtn = document.getElementById('follow-toggle') as HTMLButtonElement;
 followBtn.addEventListener('click', () => {
@@ -884,11 +897,14 @@ function feedAdd(ev: BrainEvent): void {
   li.addEventListener('mouseenter', () => {
     highlight.ids = new Set(rowPaths.get(li));
     highlight.until = performance.now() + 3500;
-    expandRow(li);
   });
-  li.addEventListener('mouseleave', () => {
-    if (!followExpanded.includes(li)) compactRow(li);
-  });
+  attachDelayedExpand(
+    li,
+    () => expandRow(li),
+    () => {
+      if (!followExpanded.includes(li)) compactRow(li);
+    },
+  );
   li.addEventListener('click', () => {
     const last = rowPaths.get(li)?.slice(-1)[0];
     const n = last ? nodeById.get(last) : undefined;
@@ -1623,6 +1639,12 @@ function renderPins(): void {
       pins.splice(idx, 1);
       savePins();
     });
+    const tx = li.querySelector('.tx') as HTMLElement;
+    attachDelayedExpand(
+      li,
+      () => tx.classList.add('x'),
+      () => tx.classList.remove('x'),
+    );
     pinsEl.append(li);
   });
 }
@@ -1751,6 +1773,12 @@ function showPopover(n: GNode, cx: number, cy: number): void {
       pinBtn.textContent = nowPinned ? '★' : '☆';
       pinBtn.classList.toggle('pinned', nowPinned);
     });
+    const tx = li.querySelector('.tx') as HTMLElement;
+    attachDelayedExpand(
+      li,
+      () => tx.classList.add('x'),
+      () => tx.classList.remove('x'),
+    );
   });
   const all = popover.querySelector<HTMLElement>('#copy-all');
   if (all) {
