@@ -118,6 +118,7 @@ const COLORS = {
 const SESSION_SPACING_X = 850;
 const SESSION_SPACING_Y = 750;
 const MAX_PULSES = 60;
+const PATH_LINGER_MS = 4000; // how long a completed action's path stays lit
 const MAX_NODE_EVENTS = 50;
 const MAX_RESOURCES_PER_SESSION = 1500;
 const REPLAY_FEED_ROWS = 120;
@@ -882,7 +883,7 @@ function feedAdd(ev: BrainEvent): void {
   if (fullText) rowFull.set(li, fullText);
   li.addEventListener('mouseenter', () => {
     highlight.ids = new Set(rowPaths.get(li));
-    highlight.until = performance.now() + 2000;
+    highlight.until = performance.now() + 3500;
     expandRow(li);
   });
   li.addEventListener('mouseleave', () => {
@@ -998,11 +999,11 @@ function frame(): void {
   const decay = Math.exp(-dt / 9000);
   for (const n of nodes) n.heat *= decay;
 
-  // prune cold edge-heat entries (they only matter within the 2.5s hot window)
+  // prune cold edge-heat entries (they only matter within the linger window)
   if (now - lastHeatSweep > 5000) {
     lastHeatSweep = now;
     for (const [id, t] of edgeHeat) {
-      if (now - t > 3000) edgeHeat.delete(id);
+      if (now - t > PATH_LINGER_MS + 500) edgeHeat.delete(id);
     }
   }
 
@@ -1028,11 +1029,11 @@ function frame(): void {
     const pb = visibleProxy(b, k);
     if (pa === pb) continue;
     const heatT = edgeHeat.get(e.id);
-    const hot = heatT !== undefined && now - heatT < 2500;
+    const hot = heatT !== undefined && now - heatT < PATH_LINGER_MS;
     const hl = hlActive && highlight.ids.has(a.id) && highlight.ids.has(b.id);
     const sAlpha = sessions.get(a.sid)?.state === 'ended' ? 0.35 : 1;
     if (hot || hl) {
-      const age = hot ? (now - heatT!) / 2500 : 0;
+      const age = hot ? (now - heatT!) / PATH_LINGER_MS : 0;
       ctx.strokeStyle = COLORS.pulse;
       ctx.globalAlpha = sAlpha * (hl ? 0.9 : 0.7 * (1 - age));
       ctx.lineWidth = 1.6 / k;
@@ -1150,7 +1151,7 @@ function frame(): void {
     const pulse = pulses[i];
     const done =
       pulse.status !== 'pending'
-        ? now - (pulse.resolvedT0 ?? now) > 450
+        ? now - (pulse.resolvedT0 ?? now) > PATH_LINGER_MS
         : now - pulse.t0 > pulse.dur + 10000;
     if (done) {
       pulses.splice(i, 1);
@@ -1200,8 +1201,21 @@ function drawPulse(pulse: Pulse, now: number, k: number): void {
   const hy = pts[seg - 1].y + (pts[seg].y - pts[seg - 1].y) * t;
 
   const resolved = pulse.status !== 'pending';
-  const fade = resolved ? Math.max(0, 1 - (now - (pulse.resolvedT0 ?? now)) / 450) : 1;
+  const sinceResolve = resolved ? now - (pulse.resolvedT0 ?? now) : 0;
+  const fade = resolved ? Math.max(0, 1 - sinceResolve / 800) : 1; // head + trail
+  const pathFade = resolved ? Math.max(0, 1 - sinceResolve / PATH_LINGER_MS) : 1;
+  const labelFade = resolved ? Math.max(0, 1 - sinceResolve / 1800) : 1;
   const color = pulse.status === 'err' ? COLORS.error : COLORS.pulse;
+
+  // the whole path stays visibly lit while the action runs and lingers after
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.4 * pathFade;
+  ctx.lineWidth = 1.6 / k;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 
   // trail
   ctx.strokeStyle = color;
@@ -1238,7 +1252,7 @@ function drawPulse(pulse: Pulse, now: number, k: number): void {
   ctx.globalAlpha = 1;
 
   // inline action label riding the pulse
-  if (pulse.label && cam.k > 0.35 && (!resolved || fade > 0.4)) {
+  if (pulse.label && cam.k > 0.35 && labelFade > 0.05) {
     const sx = hx * cam.k + cam.x;
     const sy = hy * cam.k + cam.y;
     const dpr = window.devicePixelRatio || 1;
@@ -1247,7 +1261,7 @@ function drawPulse(pulse: Pulse, now: number, k: number): void {
     ctx.font = '11px ui-monospace, monospace';
     ctx.textAlign = 'left';
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.9 * fade;
+    ctx.globalAlpha = 0.9 * labelFade;
     ctx.fillText(pulse.label, sx + 10, sy - 8);
     ctx.restore();
     ctx.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
