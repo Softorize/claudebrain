@@ -97,6 +97,7 @@ function sendPromptToTmux(
   cwd: string,
   text: string,
   knownPane: string | null,
+  claimedByOthers: Set<string>,
   cb: (err: string | null, panes?: number) => void,
 ): void {
   const sock = findTmuxSocket();
@@ -128,9 +129,12 @@ function sendPromptToTmux(
         } catch {
           // keep as-is; the session's folder may be gone
         }
-        const candidates = panes.filter(
+        let candidates = panes.filter(
           (p) => (p.panePath === cwd || p.panePath === resolvedCwd) && looksLikeClaudePane(p.cmd),
         );
+        // panes known to host OTHER sessions can't be this one's pane
+        const unclaimed = candidates.filter((p) => !claimedByOthers.has(p.id));
+        if (unclaimed.length > 0) candidates = unclaimed;
         target = candidates[0];
         matched = candidates.length;
       }
@@ -234,7 +238,11 @@ export function startServer(token: string): Promise<BrainServer> {
           return;
         }
         const knownPane = (sid && panesBySid.get(sid)) || (sid && store.lastPaneFor(sid)) || null;
-        sendPromptToTmux(cwd, text, knownPane, (err, paneCount) => {
+        const claimedByOthers = new Set<string>();
+        for (const [otherSid, otherPane] of panesBySid) {
+          if (otherSid !== sid) claimedByOthers.add(otherPane);
+        }
+        sendPromptToTmux(cwd, text, knownPane, claimedByOthers, (err, paneCount) => {
           if (err) {
             res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: err }));
           } else {
