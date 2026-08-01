@@ -244,14 +244,30 @@ async function removeSession(sid: string): Promise<void> {
 // ---- prompt bar: type into the focused session's tmux pane from the UI
 const promptBar = document.getElementById('prompt-bar') as HTMLDivElement;
 const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
+const promptTarget = document.getElementById('prompt-target') as HTMLSelectElement;
 const promptSend = document.getElementById('prompt-send') as HTMLButtonElement;
 const promptStatus = document.getElementById('prompt-status') as HTMLSpanElement;
 let promptStatusTimer = 0;
 
 function updatePromptBar(): void {
-  const s = focusSid ? sessions.get(focusSid) : null;
-  promptBar.hidden = !s;
-  if (s) promptInput.placeholder = `prompt ${s.label} — typed into its tmux pane…`;
+  const live = [...sessions.values()].filter((s) => s.state !== 'ended').sort((a, b) => b.lastTs - a.lastTs);
+  if (focusSid && sessions.has(focusSid)) {
+    // focused: the target is implicit
+    promptBar.hidden = false;
+    promptTarget.hidden = true;
+    promptInput.placeholder = `prompt ${sessions.get(focusSid)!.label} — typed into its tmux pane…`;
+  } else if (live.length > 0) {
+    // all-sessions view: pick the target next to send
+    promptBar.hidden = false;
+    promptTarget.hidden = false;
+    promptInput.placeholder = 'prompt a session — typed into its tmux pane…';
+    const prev = promptTarget.value;
+    promptTarget.innerHTML = '';
+    for (const s of live) promptTarget.add(new Option(s.label, s.sid));
+    if (live.some((s) => s.sid === prev)) promptTarget.value = prev;
+  } else {
+    promptBar.hidden = true;
+  }
 }
 
 function setPromptStatus(text: string, ok: boolean): void {
@@ -262,7 +278,7 @@ function setPromptStatus(text: string, ok: boolean): void {
 }
 
 async function sendPrompt(): Promise<void> {
-  const s = focusSid ? sessions.get(focusSid) : null;
+  const s = focusSid ? sessions.get(focusSid) : sessions.get(promptTarget.value);
   const text = promptInput.value.trim();
   if (!s || !text) return;
   promptSend.disabled = true;
@@ -2091,6 +2107,7 @@ function connect(): void {
       applyGraph(ev, true);
       feedAdd(ev);
       updatePicker();
+      updatePromptBar();
     } else if (data.type === 'session-removed') {
       if (sessions.has(data.sid)) purgeSession(data.sid);
     }

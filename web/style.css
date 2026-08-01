@@ -380,6 +380,20 @@ html, body {
   font-size: 12.5px;
 }
 #prompt-input::placeholder { color: #45536a; }
+#prompt-target {
+  background: #0d1119;
+  color: #c8d3e0;
+  border: 1px solid #223049;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 4px;
+  max-width: 180px;
+  cursor: pointer;
+  flex: none;
+}
+#prompt-target:hover { border-color: #38bdf8; }
+
 #prompt-send {
   background: none;
   border: 1px solid #223049;
