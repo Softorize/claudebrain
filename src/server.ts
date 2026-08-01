@@ -479,7 +479,9 @@ export function startServer(token: string): Promise<BrainServer> {
       if (err) {
         res.writeHead(500).end(`missing ${name} — run \`npm run build\``);
       } else {
-        res.writeHead(200, { 'Content-Type': type }).end(data);
+        // without this, browsers heuristically cache the bundle and a normal
+        // refresh can keep running stale UI after an upgrade
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache, must-revalidate' }).end(data);
       }
     });
   }
