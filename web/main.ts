@@ -24,6 +24,7 @@ interface BrainEvent {
     tool?: string;
     input?: Record<string, unknown>;
     isError?: boolean;
+    output?: string;
     prompt?: string;
     message?: string;
     source?: string;
@@ -35,6 +36,7 @@ type NodeKind = 'session' | 'hub' | 'tool' | 'skill' | 'dir' | 'file' | 'res' | 
 interface NodeEvent {
   t: string; // formatted time
   full: string; // complete command/action text, used for display, hover and copy
+  output?: string; // tool result text, attached when PostToolUse arrives
 }
 
 interface GNode extends SimulationNodeDatum {
@@ -91,6 +93,7 @@ interface Pending {
   targetId: string;
   t: number;
   row: HTMLLIElement | null;
+  evRefs: NodeEvent[]; // node-history entries to attach the tool output to
 }
 
 // ---------------------------------------------------------------- constants
@@ -490,14 +493,15 @@ function maybeEvict(s: SessionInfo): void {
 
 // ---------------------------------------------------------------- event application
 
-function touch(n: GNode, ev: BrainEvent, full?: string): void {
+function touch(n: GNode, ev: BrainEvent, full?: string): NodeEvent | null {
   n.count += 1;
   n.heat = Math.min(6, n.heat + 1.2);
   n.lastTs = ev.t;
-  if (full) {
-    n.events.push({ t: fmtTime(ev.t), full });
-    if (n.events.length > MAX_NODE_EVENTS) n.events.shift();
-  }
+  if (!full) return null;
+  const entry: NodeEvent = { t: fmtTime(ev.t), full };
+  n.events.push(entry);
+  if (n.events.length > MAX_NODE_EVENTS) n.events.shift();
+  return entry;
 }
 
 function firePulse(path: string[], label: string, animate: boolean): Pulse | null {
@@ -639,9 +643,9 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
         }
         skill.active = true;
         if (!s.activeSkills.includes(id)) s.activeSkills.push(id);
-        touch(skill, ev, full);
+        const ref = touch(skill, ev, full);
         const pulse = firePulse([sessionNode.id, id], summary, animate);
-        pushPending(ev, id, pulse);
+        pushPending(ev, id, pulse, ref ? [ref] : []);
         break;
       }
 
@@ -653,14 +657,16 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
         addEdge(sessionNode.id, id, 'session-agent');
         agent.active = true;
         s.runningAgents.push(id);
-        touch(agent, ev, full);
+        const ref = touch(agent, ev, full);
         const pulse = firePulse([sessionNode.id, id], summary, animate);
-        pushPending(ev, id, pulse);
+        pushPending(ev, id, pulse, ref ? [ref] : []);
         break;
       }
 
       const toolNode = ensureToolNode(ev.sid, tool);
-      touch(toolNode, ev, full);
+      const evRefs: NodeEvent[] = [];
+      const toolRef = touch(toolNode, ev, full);
+      if (toolRef) evRefs.push(toolRef);
 
       let target: GNode | null = null;
       const filePath =
@@ -696,7 +702,10 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
         const q = input.query.slice(0, 24);
         target = ensureResNode(s, toolNode, q, q);
       }
-      if (target) touch(target, ev, full);
+      if (target) {
+        const targetRef = touch(target, ev, full);
+        if (targetRef) evRefs.push(targetRef);
+      }
       maybeEvict(s);
 
       const head = [sessionNode.id];
@@ -704,7 +713,7 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
       if (lastSkill) head.push(lastSkill);
       const path = [...head, `hub:${ev.sid}`, toolNode.id, ...(target ? [target.id] : [])];
       const pulse = firePulse(path, summary, animate);
-      pushPending(ev, (target ?? toolNode).id, pulse);
+      pushPending(ev, (target ?? toolNode).id, pulse, evRefs);
       break;
     }
 
@@ -715,6 +724,9 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
       if (q && q.length === 0) pending.delete(key);
       if (p) {
         const isError = ev.data.isError === true;
+        if (typeof ev.data.output === 'string' && ev.data.output) {
+          for (const ref of p.evRefs) ref.output = ev.data.output;
+        }
         if (p.pulse) {
           p.pulse.status = isError ? 'err' : 'ok';
           p.pulse.resolvedT0 = performance.now();
@@ -773,10 +785,10 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
   }
 }
 
-function pushPending(ev: BrainEvent, targetId: string, pulse: Pulse | null): void {
+function pushPending(ev: BrainEvent, targetId: string, pulse: Pulse | null, evRefs: NodeEvent[] = []): void {
   const key = `${ev.sid}\0${ev.data.tool ?? '?'}`;
   const arr = pending.get(key) ?? [];
-  arr.push({ pulse, targetId, t: ev.t, row: null });
+  arr.push({ pulse, targetId, t: ev.t, row: null, evRefs });
   if (arr.length > 20) arr.shift();
   pending.set(key, arr);
 }
@@ -1636,17 +1648,31 @@ function showPopover(n: GNode, cx: number, cy: number): void {
   const items = events
     .map(
       (e, i) =>
-        `<li data-i="${i}"><span class="t">${e.t}</span>` +
+        `<li data-i="${i}"><div class="row"><span class="t">${e.t}</span>` +
         `<span class="tx">${diffHtml(e.full)}</span>` +
-        `<button class="cp" title="copy this line">⧉</button></li>`,
+        (e.output ? `<button class="ob" title="show tool output">▸ out</button>` : '') +
+        `<button class="cp" title="copy this line">⧉</button></div>` +
+        (e.output ? `<pre class="outb" hidden>${escapeHtml(e.output)}</pre>` : '') +
+        `</li>`,
     )
     .join('');
   const copyAll = events.length > 0 ? `<button id="copy-all" title="copy all lines">⧉ copy all</button>` : '';
   popover.innerHTML =
     `<div class="ph"><h3>${escapeHtml(n.label)}</h3>${copyAll}</div>` +
     `<div class="meta">${n.kind} · ${n.count} event${n.count === 1 ? '' : 's'} · ${s?.label ?? ''}</div>` +
-    `<ul>${items || '<li><span class="tx">no recorded events</span></li>'}</ul>`;
+    `<ul>${items || '<li><div class="row"><span class="tx">no recorded events</span></div></li>'}</ul>`;
   popover.hidden = false;
+
+  popover.querySelectorAll<HTMLButtonElement>('li .ob').forEach((btn) => {
+    btn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      const block = btn.closest('li')?.querySelector('.outb') as HTMLElement | null;
+      if (!block) return;
+      block.hidden = !block.hidden;
+      btn.textContent = block.hidden ? '▸ out' : '▾ out';
+      btn.classList.toggle('open', !block.hidden);
+    });
+  });
 
   popover.querySelectorAll<HTMLLIElement>('li[data-i]').forEach((li) => {
     const e = events[Number(li.dataset.i)];

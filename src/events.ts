@@ -30,6 +30,29 @@ function truncateValues(obj: unknown): Record<string, unknown> | undefined {
   return out;
 }
 
+const MAX_OUTPUT = 4000;
+
+/** Best-effort human-readable text from a tool_response of any shape. */
+function extractOutput(resp: unknown): string {
+  if (resp === null || resp === undefined) return '';
+  if (typeof resp === 'string') return resp;
+  if (typeof resp !== 'object') return String(resp);
+  const r = resp as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof r.stdout === 'string' && r.stdout.trim()) parts.push(r.stdout);
+  if (typeof r.stderr === 'string' && r.stderr.trim()) parts.push(`[stderr] ${r.stderr}`);
+  if (parts.length > 0) return parts.join('\n');
+  for (const key of ['output', 'content', 'result', 'message', 'error']) {
+    if (typeof r[key] === 'string' && (r[key] as string).trim()) return r[key] as string;
+  }
+  try {
+    const s = JSON.stringify(r);
+    return s === '{}' ? '' : s;
+  } catch {
+    return '';
+  }
+}
+
 function looksLikeError(response: unknown): boolean {
   if (response === null || response === undefined) return false;
   if (typeof response === 'object') {
@@ -54,6 +77,8 @@ export function normalizeHookEvent(eventName: string, payload: Record<string, un
     case 'PostToolUse': {
       data.tool = String(payload.tool_name ?? '?');
       if (looksLikeError(payload.tool_response)) data.isError = true;
+      const output = extractOutput(payload.tool_response);
+      if (output) data.output = truncate(output, MAX_OUTPUT);
       break;
     }
     case 'UserPromptSubmit':

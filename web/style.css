@@ -221,11 +221,13 @@ html, body {
   overflow-y: auto;
 }
 #popover li {
+  padding: 2px 0;
+  color: #8fa0b5;
+}
+#popover li .row {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 2px 0;
-  color: #8fa0b5;
 }
 #popover li .t { color: #45536a; flex: none; }
 #popover li .tx {
@@ -260,6 +262,28 @@ html, body {
   padding: 0 5px;
 }
 #popover li:hover .cp { visibility: visible; }
+
+#popover li .ob {
+  font-size: 9.5px;
+  padding: 0 5px;
+  color: #45536a;
+}
+#popover li .ob.open { color: #7dd3fc; border-color: #38bdf8; }
+
+#popover .outb {
+  margin: 3px 4px 5px 52px;
+  padding: 6px 8px;
+  background: #070a10;
+  border-left: 2px solid #223049;
+  border-radius: 0 4px 4px 0;
+  color: #7a8ba0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 /* git-diff line backgrounds on hover */
 #popover li:hover .dl { background: #f8717114; }
