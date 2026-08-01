@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HOST, PORT } from './config.js';
@@ -40,21 +40,40 @@ function tmuxPath(): string {
   return tmuxBin;
 }
 
-// launchd strips TMPDIR, but on macOS the user's tmux server socket lives in
-// $TMPDIR/tmux-<uid>/default — resolve it explicitly so `brew services` can
-// still reach the interactive tmux server.
-let tmuxSocketArgs: string[] | undefined;
-function withTmuxSocket(cb: (extra: string[]) => void): void {
-  if (tmuxSocketArgs) {
-    cb(tmuxSocketArgs);
-    return;
+// The user's tmux server socket can live under several temp dirs depending on
+// the environment tmux was started from ($TMUX_TMPDIR, $TMPDIR, /tmp,
+// DARWIN_USER_TEMP_DIR) — and a launchd service's TMPDIR often disagrees with
+// the interactive one. Find the socket that actually exists; prefer the most
+// recently created. Resolved per request so tmux restarts are picked up.
+let darwinTempDir: string | null | undefined;
+function findTmuxSocket(): string[] {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : '';
+  if (darwinTempDir === undefined) {
+    try {
+      darwinTempDir = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR']).toString().trim() || null;
+    } catch {
+      darwinTempDir = null;
+    }
   }
-  execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (err, out) => {
-    const uid = typeof process.getuid === 'function' ? process.getuid() : '';
-    const sock = !err && out.trim() ? path.join(out.trim(), `tmux-${uid}`, 'default') : '';
-    tmuxSocketArgs = sock && fs.existsSync(sock) ? ['-S', sock] : [];
-    cb(tmuxSocketArgs);
+  const dirs = [process.env.TMUX_TMPDIR, process.env.TMPDIR, '/tmp', '/private/tmp', darwinTempDir];
+  const seen = new Set<string>();
+  const socks: string[] = [];
+  for (const d of dirs) {
+    if (!d) continue;
+    const sock = path.join(d, `tmux-${uid}`, 'default');
+    if (seen.has(sock)) continue;
+    seen.add(sock);
+    if (fs.existsSync(sock)) socks.push(sock);
+  }
+  if (socks.length === 0) return [];
+  socks.sort((a, b) => {
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+    } catch {
+      return 0;
+    }
   });
+  return ['-S', socks[0]];
 }
 
 /**
@@ -67,13 +86,20 @@ function looksLikeClaudePane(cmd: string): boolean {
 }
 
 /**
- * Find the tmux pane whose Claude Code session lives in `cwd` and type the
- * prompt into it (literal keys, then Enter). Matching is by working directory
- * plus a foreground command that looks like Claude Code — never a plain shell,
- * so a prompt can't be typed into zsh and executed as a shell command.
+ * Type a prompt into the tmux pane hosting a Claude Code session.
+ *
+ * Preferred routing: the exact pane id the session's own hooks reported via
+ * $TMUX_PANE — unambiguous even with several sessions in one folder. Fallback:
+ * match by working directory plus a foreground command that looks like Claude
+ * Code — never a plain shell, so a prompt can't be executed as a shell command.
  */
-function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, panes?: number) => void): void {
-  withTmuxSocket((sock) => {
+function sendPromptToTmux(
+  cwd: string,
+  text: string,
+  knownPane: string | null,
+  cb: (err: string | null, panes?: number) => void,
+): void {
+  const sock = findTmuxSocket();
   // NOTE: no control characters in the format — modern tmux sanitizes them
   // to '_' in list output; '|' with the path last parses unambiguously.
   execFile(
@@ -84,44 +110,53 @@ function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, pa
         cb('tmux is not available or no tmux server is running');
         return;
       }
-      // tmux reports resolved paths (/tmp → /private/tmp on macOS) — compare realpaths
-      let resolvedCwd = cwd;
-      try {
-        resolvedCwd = fs.realpathSync(cwd);
-      } catch {
-        // keep as-is; the session's folder may be gone
-      }
-      const candidates = stdout
+      const panes = stdout
         .split('\n')
         .filter(Boolean)
         .map((line) => {
           const parts = line.split('|');
           return { id: parts[0], cmd: parts[1], panePath: parts.slice(2).join('|') };
-        })
-        .filter((p) => (p.panePath === cwd || p.panePath === resolvedCwd) && looksLikeClaudePane(p.cmd));
-      if (candidates.length === 0) {
+        });
+
+      let target = knownPane ? panes.find((p) => p.id === knownPane) : undefined;
+      let matched = target ? 1 : 0;
+      if (!target) {
+        // tmux reports resolved paths (/tmp → /private/tmp on macOS)
+        let resolvedCwd = cwd;
+        try {
+          resolvedCwd = fs.realpathSync(cwd);
+        } catch {
+          // keep as-is; the session's folder may be gone
+        }
+        const candidates = panes.filter(
+          (p) => (p.panePath === cwd || p.panePath === resolvedCwd) && looksLikeClaudePane(p.cmd),
+        );
+        target = candidates[0];
+        matched = candidates.length;
+      }
+      if (!target) {
         cb('no tmux pane running Claude Code was found for this session’s folder');
         return;
       }
-      const pane = candidates[0];
-      execFile(tmuxPath(), [...sock, 'send-keys', '-t', pane.id, '-l', text], (err2) => {
+      execFile(tmuxPath(), [...sock, 'send-keys', '-t', target.id, '-l', text], (err2) => {
         if (err2) {
           cb('failed to type into the tmux pane');
           return;
         }
-        execFile(tmuxPath(), [...sock, 'send-keys', '-t', pane.id, 'Enter'], (err3) => {
+        execFile(tmuxPath(), [...sock, 'send-keys', '-t', target.id, 'Enter'], (err3) => {
           if (err3) cb('typed the prompt but failed to submit it');
-          else cb(null, candidates.length);
+          else cb(null, matched);
         });
       });
     },
   );
-  });
 }
 
 export function startServer(token: string): Promise<BrainServer> {
   const store = new EventStore();
   const clients = new Set<WebSocket>();
+  // sid → tmux pane id, learned from the X-Claudebrain-Pane hook header
+  const panesBySid = new Map<string, string>();
 
   function broadcast(msg: object): void {
     const s = JSON.stringify(msg);
@@ -159,6 +194,11 @@ export function startServer(token: string): Promise<BrainServer> {
         }
         const eventName = url.searchParams.get('event') ?? String(payload.hook_event_name ?? '?');
         const ev = normalizeHookEvent(eventName, payload);
+        const pane = req.headers['x-claudebrain-pane'];
+        if (typeof pane === 'string' && /^%\d+$/.test(pane)) {
+          panesBySid.set(ev.sid, pane);
+          ev.data.pane = pane; // persisted, so the mapping survives restarts
+        }
         store.append(ev);
         broadcast({ type: 'event', event: ev });
         // v1 always allows immediately. The request/response shape exists so v2
@@ -177,12 +217,13 @@ export function startServer(token: string): Promise<BrainServer> {
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
-        let body: { cwd?: string; text?: string } = {};
+        let body: { sid?: string; cwd?: string; text?: string } = {};
         try {
           body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         } catch {
           // handled below
         }
+        const sid = String(body.sid ?? '');
         const cwd = String(body.cwd ?? '');
         const text = String(body.text ?? '')
           .replace(/[\r\n]+/g, ' ')
@@ -192,7 +233,8 @@ export function startServer(token: string): Promise<BrainServer> {
           res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"cwd and text required"}');
           return;
         }
-        sendPromptToTmux(cwd, text, (err, paneCount) => {
+        const knownPane = (sid && panesBySid.get(sid)) || (sid && store.lastPaneFor(sid)) || null;
+        sendPromptToTmux(cwd, text, knownPane, (err, paneCount) => {
           if (err) {
             res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: err }));
           } else {

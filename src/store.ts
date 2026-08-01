@@ -27,6 +27,26 @@ export class EventStore {
     fs.rm(this.logPath(sid), { force: true }, () => {});
   }
 
+  /** Most recent tmux pane id this session's hooks reported, if any. */
+  lastPaneFor(sid: string): string | null {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.logPath(sid), 'utf8');
+    } catch {
+      return null;
+    }
+    const lines = raw.split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const ev = JSON.parse(lines[i]);
+        if (typeof ev?.data?.pane === 'string') return ev.data.pane;
+      } catch {
+        // skip corrupt line
+      }
+    }
+    return null;
+  }
+
   /**
    * Events for all sessions active within the replay window, oldest first.
    * Recency comes from log file mtime, so nothing is lost on abrupt shutdown.

@@ -158,6 +158,32 @@ function inFocus(sid: string): boolean {
   return focusSid === null || sid === focusSid;
 }
 
+// custom session names survive reloads
+const NAMES_KEY = 'claudebrain-names';
+let sessionNames: Record<string, string> = {};
+try {
+  sessionNames = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}');
+} catch {
+  sessionNames = {};
+}
+
+function renameSession(sid: string): void {
+  const s = sessions.get(sid);
+  if (!s) return;
+  const name = window.prompt('Rename session', s.label)?.trim();
+  if (!name) return;
+  sessionNames[sid] = name;
+  localStorage.setItem(NAMES_KEY, JSON.stringify(sessionNames));
+  s.label = name;
+  const root = nodeById.get(`s:${sid}`);
+  if (root) root.label = name;
+  const g = feedGroups.get(sid);
+  if (g) g.nameEl.textContent = name;
+  pickerSig = '';
+  updatePicker();
+  updatePromptBar();
+}
+
 function setFocus(sid: string | null): void {
   focusSid = sid;
   localStorage.setItem('claudebrain-focus', sid ?? '');
@@ -444,6 +470,7 @@ function feedGroupFor(sid: string): FeedGroup {
   header.className = 'feed-group-header';
   header.innerHTML =
     '<span class="chev">▾</span><span class="sdot"></span><span class="name"></span><span class="cnt"></span>' +
+    '<button class="gr" title="rename session">✎</button>' +
     '<button class="gx" title="remove session and delete its log">✕</button>';
   const list = document.createElement('ul');
   wrap.append(header, list);
@@ -465,6 +492,10 @@ function feedGroupFor(sid: string): FeedGroup {
   (header.querySelector('.gx') as HTMLElement).addEventListener('click', (evt) => {
     evt.stopPropagation();
     void removeSession(sid);
+  });
+  (header.querySelector('.gr') as HTMLElement).addEventListener('click', (evt) => {
+    evt.stopPropagation();
+    renameSession(sid);
   });
   feedGroups.set(sid, g);
   feedEl.prepend(wrap);
@@ -576,7 +607,7 @@ function ensureSession(ev: BrainEvent): SessionInfo {
   const sameBase = [...sessions.values()].filter(
     (x) => x.label === base || x.label.startsWith(`${base} #`),
   ).length;
-  const label = sameBase === 0 ? base : `${base} #${sameBase + 1}`;
+  const label = sessionNames[ev.sid] ?? (sameBase === 0 ? base : `${base} #${sameBase + 1}`);
   s = {
     sid: ev.sid,
     label,

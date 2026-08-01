@@ -198,7 +198,8 @@ html, body {
   white-space: nowrap;
 }
 .feed-group-header .cnt { color: #45536a; font-size: 10.5px; }
-.feed-group-header .gx {
+.feed-group-header .gx,
+.feed-group-header .gr {
   background: none;
   border: none;
   color: #45536a;
@@ -208,8 +209,10 @@ html, body {
   cursor: pointer;
   visibility: hidden;
 }
-.feed-group-header:hover .gx { visibility: visible; }
+.feed-group-header:hover .gx,
+.feed-group-header:hover .gr { visibility: visible; }
 .feed-group-header .gx:hover { color: #f87171; }
+.feed-group-header .gr:hover { color: #7dd3fc; }
 .feed-group ul { list-style: none; }
 .feed-group.collapsed ul { display: none; }
 #feed li {

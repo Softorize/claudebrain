@@ -35,10 +35,13 @@ const EVENTS: Array<{ name: string; matcher?: string; curlMaxTime: number; timeo
 ];
 
 function hookCommand(event: string, curlMaxTime: number): string {
+  // $TMUX_PANE tells the server exactly which pane hosts this session, so
+  // UI prompts route to the right pane even with many sessions per folder.
   return (
     `curl -s --connect-timeout 1 -m ${curlMaxTime} -X POST ` +
     `-H "Content-Type: application/json" ` +
     `-H "X-Claudebrain-Token: $(cat ${TOKEN_PATH} 2>/dev/null)" ` +
+    `-H "X-Claudebrain-Pane: $TMUX_PANE" ` +
     `--data-binary @- "http://${HOST}:${PORT}${MARKER}${event}" 2>/dev/null || true`
   );
 }
