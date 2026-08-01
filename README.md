@@ -24,6 +24,9 @@ as a *"which session needs me?"* radar.
   turn ends, with the tool calls it drives visually attached.
 - **Waiting radar** — session halos encode state: green = working, amber pulse =
   waiting for you, red pulse = needs permission, dim = ended.
+- **Focus mode** — pick a single session from the top-left dropdown (or view
+  all). When a background session needs your permission — or finishes a work
+  stretch longer than 30s — a toast appears; click it to jump there.
 - **Per-session activity feed** — collapsible groups per session, newest-active on
   top; hover a row to flash its path in the graph, click to jump to the node.
 - **Inspect & copy everything** — click any node for its history: full bash
@@ -107,6 +110,7 @@ brew uninstall claudebrain    # if installed via brew
 | Hover an image file node | thumbnail preview of the file |
 | Click the preview | full-size lightbox; Esc or click closes |
 | ☆ on a popover line | pin the command to a persistent panel on the left (copy/unpin there) |
+| Session dropdown (top left) | focus one session; toasts announce background sessions needing you |
 | ▸ out on a popover line | expand the captured tool output inline |
 
 ## How it works

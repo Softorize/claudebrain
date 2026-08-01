@@ -32,6 +32,62 @@ html, body {
 }
 .dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade8088; }
 
+#session-picker {
+  pointer-events: auto;
+  background: #0d1119;
+  color: #c8d3e0;
+  border: 1px solid #223049;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  max-width: 260px;
+  cursor: pointer;
+}
+#session-picker:hover { border-color: #38bdf8; }
+
+#toasts {
+  position: fixed;
+  top: 12px;
+  right: 336px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0d1119f2;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #d7e2ef;
+  cursor: pointer;
+  box-shadow: 0 8px 30px #000c;
+  animation: toast-in 0.25s ease;
+}
+.toast.attention { border-color: #fb7185; }
+.toast.attention span:first-child { color: #fb7185; }
+.toast.waiting span:first-child { color: #fbbf24; }
+.toast .tt:hover { text-decoration: underline; }
+.toast button {
+  background: none;
+  border: none;
+  color: #5b6b80;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.toast button:hover { color: #d7e2ef; }
+@keyframes toast-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 #feed-toggle {
   position: fixed;
   top: 8px;

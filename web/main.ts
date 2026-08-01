@@ -72,6 +72,7 @@ interface SessionInfo {
   center: { x: number; y: number };
   state: SessionState;
   lastTs: number;
+  workStartTs: number; // when the current work stretch began (last prompt)
   activeSkills: string[];
   runningAgents: string[];
   agentCounter: number;
@@ -80,6 +81,7 @@ interface SessionInfo {
 }
 
 interface Pulse {
+  sid: string;
   path: string[];
   t0: number; // performance.now()
   dur: number;
@@ -145,6 +147,62 @@ const cam = { x: 0, y: 0, k: 0.9 };
 let autoCamera = true;
 
 // ---------------------------------------------------------------- DOM
+
+// ---------------------------------------------------------------- session focus
+
+const picker = document.getElementById('session-picker') as HTMLSelectElement;
+const toastsEl = document.getElementById('toasts') as HTMLDivElement;
+let focusSid: string | null = localStorage.getItem('claudebrain-focus') || null;
+
+function inFocus(sid: string): boolean {
+  return focusSid === null || sid === focusSid;
+}
+
+function setFocus(sid: string | null): void {
+  focusSid = sid;
+  localStorage.setItem('claudebrain-focus', sid ?? '');
+  picker.value = sid ?? 'all';
+  applyFeedFocus();
+  autoCamera = true;
+  hidePopover();
+}
+
+picker.addEventListener('change', () => setFocus(picker.value === 'all' ? null : picker.value));
+
+let pickerSig = '';
+function updatePicker(): void {
+  const list = [...sessions.values()].sort((a, b) => b.lastTs - a.lastTs);
+  const sig = (focusSid ?? '') + '|' + list.map((s) => s.sid + s.label + s.state).join(',');
+  if (sig === pickerSig) return;
+  pickerSig = sig;
+  picker.innerHTML = '';
+  picker.add(new Option('all sessions', 'all'));
+  for (const s of list) picker.add(new Option(`${s.label} · ${s.state}`, s.sid));
+  picker.value = focusSid && sessions.has(focusSid) ? focusSid : 'all';
+}
+
+function applyFeedFocus(): void {
+  for (const [sid, g] of feedGroups) g.wrap.style.display = inFocus(sid) ? '' : 'none';
+}
+
+/** Toast for a background session that needs the user; click jumps to it. */
+function showToast(s: SessionInfo, kind: 'waiting' | 'attention'): void {
+  if (!focusSid || s.sid === focusSid) return; // visible anyway
+  const div = document.createElement('div');
+  div.className = `toast ${kind}`;
+  div.innerHTML = `<span>${kind === 'attention' ? '⚠' : '●'}</span><span class="tt"></span><button title="dismiss">✕</button>`;
+  (div.querySelector('.tt') as HTMLElement).textContent =
+    kind === 'attention' ? `${s.label} needs your permission` : `${s.label} finished — waiting for you`;
+  div.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setFocus(s.sid);
+    div.remove();
+  });
+  (div.querySelector('button') as HTMLElement).addEventListener('click', () => div.remove());
+  toastsEl.append(div);
+  while (toastsEl.children.length > 4) toastsEl.firstChild?.remove();
+  setTimeout(() => div.remove(), 12000);
+}
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -235,6 +293,7 @@ function feedGroupFor(sid: string): FeedGroup {
     rows: 0,
     collapsed: false,
   };
+  wrap.style.display = inFocus(sid) ? '' : 'none';
   const group = g;
   header.addEventListener('click', () => {
     group.collapsed = !group.collapsed;
@@ -353,6 +412,7 @@ function ensureSession(ev: BrainEvent): SessionInfo {
     center,
     state: 'active',
     lastTs: ev.t,
+    workStartTs: ev.t,
     activeSkills: [],
     runningAgents: [],
     agentCounter: 0,
@@ -524,7 +584,8 @@ function firePulse(path: string[], label: string, animate: boolean): Pulse | nul
   for (let i = 0; i < path.length - 1; i++) {
     edgeHeat.set(`${path[i]}->${path[i + 1]}`, now);
   }
-  const pulse: Pulse = { path, t0: now, dur: 500 + path.length * 130, label, status: 'pending' };
+  const sid = path[0].startsWith('s:') ? path[0].slice(2) : '';
+  const pulse: Pulse = { sid, path, t0: now, dur: 500 + path.length * 130, label, status: 'pending' };
   pulses.push(pulse);
   if (pulses.length > MAX_PULSES) pulses.shift();
   return pulse;
@@ -635,6 +696,7 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
 
     case 'UserPromptSubmit': {
       s.state = 'active';
+      s.workStartTs = ev.t;
       if (animate) s.ripples.push(performance.now());
       touch(sessionNode, ev, `“${ev.data.prompt ?? ''}”`);
       break;
@@ -765,11 +827,18 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
 
     case 'Notification': {
       const msg = ev.data.message ?? '';
-      if (/permission|waiting|input|approve/i.test(msg)) s.state = 'attention';
+      if (/permission|waiting|input|approve/i.test(msg)) {
+        if (animate && s.state !== 'attention') showToast(s, 'attention');
+        s.state = 'attention';
+      }
       break;
     }
 
     case 'Stop': {
+      // long work stretch finished in a background session → worth a toast
+      if (animate && s.state === 'active' && ev.t - s.workStartTs > 30_000) {
+        showToast(s, 'waiting');
+      }
       s.state = 'waiting';
       for (const id of s.activeSkills) {
         const n = nodeById.get(id);
@@ -1041,6 +1110,7 @@ function frame(): void {
     const a = e.source as GNode;
     const b = e.target as GNode;
     if (typeof a !== 'object' || typeof b !== 'object') continue;
+    if (!inFocus(a.sid)) continue;
     const pa = visibleProxy(a, k);
     const pb = visibleProxy(b, k);
     if (pa === pb) continue;
@@ -1067,6 +1137,7 @@ function frame(): void {
 
   // ---- session halos + ripples
   for (const s of sessions.values()) {
+    if (!inFocus(s.sid)) continue;
     const root = nodeById.get(`s:${s.sid}`);
     if (!root) continue;
     const r = nodeRadius(root);
@@ -1097,6 +1168,7 @@ function frame(): void {
   // ---- nodes
   const drawn = new Set<string>();
   for (const n of nodes) {
+    if (!inFocus(n.sid)) continue;
     const proxy = visibleProxy(n, k);
     if (proxy !== n) continue; // hidden behind an aggregate
     if (drawn.has(n.id)) continue;
@@ -1173,6 +1245,7 @@ function frame(): void {
       pulses.splice(i, 1);
       continue;
     }
+    if (!inFocus(pulse.sid)) continue;
     drawPulse(pulse, now, k);
   }
 
@@ -1354,7 +1427,10 @@ function drawLabels(w: number, h: number, now: number, drawn: Set<string>): void
     budget--;
   }
 
-  statsEl.textContent = `claudebrain — ${sessions.size} session${sessions.size === 1 ? '' : 's'} · ${eventCount} events`;
+  const focusInfo = focusSid ? sessions.get(focusSid) : null;
+  statsEl.textContent = focusInfo
+    ? `claudebrain — ${focusInfo.label} · ${sessions.size} session${sessions.size === 1 ? '' : 's'} total`
+    : `claudebrain — ${sessions.size} session${sessions.size === 1 ? '' : 's'} · ${eventCount} events`;
 }
 
 function autoFit(w: number, h: number): void {
@@ -1363,12 +1439,16 @@ function autoFit(w: number, h: number): void {
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
+  let counted = 0;
   for (const n of nodes) {
+    if (!inFocus(n.sid)) continue;
+    counted += 1;
     if (n.x! < minX) minX = n.x!;
     if (n.x! > maxX) maxX = n.x!;
     if (n.y! < minY) minY = n.y!;
     if (n.y! > maxY) maxY = n.y!;
   }
+  if (counted === 0) return;
   const margin = 130;
   const bw = maxX - minX + margin * 2;
   const bh = maxY - minY + margin * 2;
@@ -1598,6 +1678,7 @@ function hitTest(cx: number, cy: number): GNode | null {
   const wy = (cy - cam.y) / cam.k;
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
+    if (!inFocus(n.sid)) continue;
     if (visibleProxy(n, cam.k) !== n) continue;
     const r = nodeRadius(n) + 4 / cam.k;
     if (Math.hypot(n.x! - wx, n.y! - wy) <= r) return n;
@@ -1841,10 +1922,14 @@ function connect(): void {
       for (const ev of events.slice(-REPLAY_FEED_ROWS)) feedAdd(ev);
       // let replayed graphs settle fast
       sim.alpha(1);
+      if (focusSid && !sessions.has(focusSid)) setFocus(null);
+      updatePicker();
+      applyFeedFocus();
     } else if (data.type === 'event') {
       const ev: BrainEvent = data.event;
       applyGraph(ev, true);
       feedAdd(ev);
+      updatePicker();
     }
   };
 }
