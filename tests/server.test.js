@@ -41,10 +41,18 @@ test('authorized events are accepted, answered instantly, and persisted', async 
 
   const logFile = path.join(home, 'logs', 'srv1.jsonl');
   const start = Date.now();
-  while (!fs.existsSync(logFile) && Date.now() - start < 2000) {
-    await new Promise((r) => setTimeout(r, 25));
+  let line;
+  while (line === undefined && Date.now() - start < 3000) {
+    try {
+      const txt = fs.readFileSync(logFile, 'utf8');
+      // only parse once the async append has landed a complete line
+      if (txt.endsWith('\n')) line = JSON.parse(txt.trim());
+    } catch {
+      // not there yet
+    }
+    if (line === undefined) await new Promise((r) => setTimeout(r, 25));
   }
-  const line = JSON.parse(fs.readFileSync(logFile, 'utf8').trim());
+  assert.ok(line, 'event was persisted within 3s');
   assert.equal(line.data.tool, 'Read');
 });
 
