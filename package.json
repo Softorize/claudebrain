@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && esbuild web/main.ts --bundle --format=iife --outfile=dist/web/app.js && cp web/index.html web/style.css dist/web/",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "start": "node dist/cli.js start",
     "dev": "npm run build && node dist/cli.js start"
   },

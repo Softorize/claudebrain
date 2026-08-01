@@ -11,6 +11,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # secrets are not readable in step-level `if`; surface presence via env
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +53,7 @@ jobs:
           files: ${{ steps.pack.outputs.tarball }}
 
       - name: Update Homebrew formula in Softorize/homebrew-tap
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        if: ${{ env.HAS_TAP_TOKEN == 'true' }}
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -63,7 +66,7 @@ jobs:
             }
 
       - name: Note when tap update was skipped
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN == '' }}
+        if: ${{ env.HAS_TAP_TOKEN != 'true' }}
         run: |
           echo "::warning::HOMEBREW_TAP_TOKEN secret is not set — the Homebrew formula was NOT updated."
           echo "::warning::Add it (a PAT with repo access to Softorize/homebrew-tap), or dispatch manually:"
