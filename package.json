@@ -1,6 +1,6 @@
 {
   "name": "claudebrain",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Live synapse-graph visualizer for Claude Code — watch every session, skill, tool call, and file edit light up in real time",
   "type": "module",
   "license": "MIT",

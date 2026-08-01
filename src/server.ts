@@ -40,6 +40,23 @@ function tmuxPath(): string {
   return tmuxBin;
 }
 
+// launchd strips TMPDIR, but on macOS the user's tmux server socket lives in
+// $TMPDIR/tmux-<uid>/default — resolve it explicitly so `brew services` can
+// still reach the interactive tmux server.
+let tmuxSocketArgs: string[] | undefined;
+function withTmuxSocket(cb: (extra: string[]) => void): void {
+  if (tmuxSocketArgs) {
+    cb(tmuxSocketArgs);
+    return;
+  }
+  execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (err, out) => {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : '';
+    const sock = !err && out.trim() ? path.join(out.trim(), `tmux-${uid}`, 'default') : '';
+    tmuxSocketArgs = sock && fs.existsSync(sock) ? ['-S', sock] : [];
+    cb(tmuxSocketArgs);
+  });
+}
+
 /**
  * Does a tmux pane_current_command look like Claude Code? The CLI sets its
  * process title to its bare version ("2.1.218"), so a pure version string is
@@ -56,9 +73,12 @@ function looksLikeClaudePane(cmd: string): boolean {
  * so a prompt can't be typed into zsh and executed as a shell command.
  */
 function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, panes?: number) => void): void {
+  withTmuxSocket((sock) => {
+  // NOTE: no control characters in the format — modern tmux sanitizes them
+  // to '_' in list output; '|' with the path last parses unambiguously.
   execFile(
     tmuxPath(),
-    ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_current_command}\t#{pane_current_path}'],
+    [...sock, 'list-panes', '-a', '-F', '#{pane_id}|#{pane_current_command}|#{pane_current_path}'],
     (err, stdout) => {
       if (err) {
         cb('tmux is not available or no tmux server is running');
@@ -75,8 +95,8 @@ function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, pa
         .split('\n')
         .filter(Boolean)
         .map((line) => {
-          const [id, cmd, panePath] = line.split('\t');
-          return { id, cmd, panePath };
+          const parts = line.split('|');
+          return { id: parts[0], cmd: parts[1], panePath: parts.slice(2).join('|') };
         })
         .filter((p) => (p.panePath === cwd || p.panePath === resolvedCwd) && looksLikeClaudePane(p.cmd));
       if (candidates.length === 0) {
@@ -84,18 +104,19 @@ function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, pa
         return;
       }
       const pane = candidates[0];
-      execFile(tmuxPath(), ['send-keys', '-t', pane.id, '-l', text], (err2) => {
+      execFile(tmuxPath(), [...sock, 'send-keys', '-t', pane.id, '-l', text], (err2) => {
         if (err2) {
           cb('failed to type into the tmux pane');
           return;
         }
-        execFile(tmuxPath(), ['send-keys', '-t', pane.id, 'Enter'], (err3) => {
+        execFile(tmuxPath(), [...sock, 'send-keys', '-t', pane.id, 'Enter'], (err3) => {
           if (err3) cb('typed the prompt but failed to submit it');
           else cb(null, candidates.length);
         });
       });
     },
   );
+  });
 }
 
 export function startServer(token: string): Promise<BrainServer> {

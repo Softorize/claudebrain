@@ -249,7 +249,20 @@ const promptSend = document.getElementById('prompt-send') as HTMLButtonElement;
 const promptStatus = document.getElementById('prompt-status') as HTMLSpanElement;
 let promptStatusTimer = 0;
 
+// unsent text is a per-session draft — switching sessions keeps drafts apart
+const promptDrafts = new Map<string, string>();
+let promptDraftKey = '#all';
+
+function swapPromptDraft(): void {
+  const key = focusSid ?? '#all';
+  if (key === promptDraftKey) return;
+  promptDrafts.set(promptDraftKey, promptInput.value);
+  promptInput.value = promptDrafts.get(key) ?? '';
+  promptDraftKey = key;
+}
+
 function updatePromptBar(): void {
+  swapPromptDraft();
   const live = [...sessions.values()].filter((s) => s.state !== 'ended').sort((a, b) => b.lastTs - a.lastTs);
   if (focusSid && sessions.has(focusSid)) {
     // focused: the target is implicit
@@ -291,6 +304,7 @@ async function sendPrompt(): Promise<void> {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       promptInput.value = '';
+      promptDrafts.set(promptDraftKey, '');
       setPromptStatus('✓ sent', true);
     } else {
       setPromptStatus(data.error ?? `failed (${res.status})`, false);
