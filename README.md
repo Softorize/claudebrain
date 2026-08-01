@@ -106,6 +106,8 @@ brew uninstall claudebrain    # if installed via brew
 | ⦿ follow (feed header) | live mode: new actions arrive expanded (last 12 stay open) |
 | Hover an image file node | thumbnail preview of the file |
 | Click the preview | full-size lightbox; Esc or click closes |
+| ☆ on a popover line | pin the command to a persistent panel on the left (copy/unpin there) |
+| ▸ out on a popover line | expand the captured tool output inline |
 
 ## How it works
 

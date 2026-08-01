@@ -289,6 +289,81 @@ html, body {
 #popover li:hover .dl { background: #f8717114; }
 #popover li:hover .al { background: #4ade8014; }
 
+#pin-panel {
+  position: fixed;
+  top: 42px;
+  left: 10px;
+  z-index: 2;
+  width: 320px;
+  max-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  background: #0a0d14e6;
+  border: 1px solid #161d2a;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+#pin-header {
+  padding: 8px 12px 6px;
+  color: #5b6b80;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #131a26;
+}
+#pins {
+  list-style: none;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+#pins li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: #8fa0b5;
+}
+#pins li:hover { background: #121a28; }
+#pins li .tx {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#pins li:hover .tx {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #d7e2ef;
+}
+#pins li button {
+  background: none;
+  border: 1px solid #223049;
+  border-radius: 4px;
+  color: #5b6b80;
+  font: inherit;
+  font-size: 10px;
+  padding: 0 5px;
+  cursor: pointer;
+  flex: none;
+  visibility: hidden;
+}
+#pins li:hover button { visibility: visible; }
+#pins li button:hover { color: #d7e2ef; border-color: #38bdf8; }
+#pins li button.copied { color: #4ade80; border-color: #4ade80; }
+
+#popover li .pn {
+  visibility: hidden;
+  padding: 0 5px;
+}
+#popover li:hover .pn { visibility: visible; }
+#popover li .pn.pinned {
+  visibility: visible;
+  color: #fbbf24;
+  border-color: #fbbf24;
+}
+
 #img-preview {
   position: fixed;
   z-index: 5;

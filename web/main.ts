@@ -1357,12 +1357,13 @@ function autoFit(w: number, h: number): void {
   const bw = maxX - minX + margin * 2;
   const bh = maxY - minY + margin * 2;
   const feedW = feedPanel.classList.contains('hidden') ? 0 : 320;
-  const availW = Math.max(150, w - feedW);
+  const pinW = pinPanel.hidden ? 0 : 340;
+  const availW = Math.max(150, w - feedW - pinW);
   const targetK = Math.max(0.05, Math.min(1.1, availW / bw, h / bh));
   if (!Number.isFinite(targetK)) return;
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
-  const targetX = availW / 2 - cx * targetK;
+  const targetX = pinW + availW / 2 - cx * targetK;
   const targetY = h / 2 - cy * targetK;
   cam.k += (targetK - cam.k) * 0.05;
   cam.x += (targetX - cam.x) * 0.05;
@@ -1588,6 +1589,54 @@ function hitTest(cx: number, cy: number): GNode | null {
   return null;
 }
 
+// ---------------------------------------------------------------- pinned commands
+
+const PINS_KEY = 'claudebrain-pins';
+const pinPanel = document.getElementById('pin-panel') as HTMLDivElement;
+const pinsEl = document.getElementById('pins') as HTMLUListElement;
+let pins: string[] = [];
+try {
+  pins = JSON.parse(localStorage.getItem(PINS_KEY) ?? '[]');
+} catch {
+  pins = [];
+}
+
+function savePins(): void {
+  localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+  renderPins();
+}
+
+function renderPins(): void {
+  pinPanel.hidden = pins.length === 0;
+  pinsEl.innerHTML = '';
+  pins.forEach((text, idx) => {
+    const li = document.createElement('li');
+    li.innerHTML =
+      `<span class="tx"></span>` +
+      `<button class="pc" title="copy">⧉</button>` +
+      `<button class="px" title="unpin">✕</button>`;
+    (li.querySelector('.tx') as HTMLElement).innerHTML = diffHtml(text);
+    (li.querySelector('.pc') as HTMLElement).addEventListener('click', (evt) => {
+      void copyText(stripForCopy(text), evt.currentTarget as HTMLElement);
+    });
+    (li.querySelector('.px') as HTMLElement).addEventListener('click', () => {
+      pins.splice(idx, 1);
+      savePins();
+    });
+    pinsEl.append(li);
+  });
+}
+
+function togglePin(text: string): boolean {
+  const at = pins.indexOf(text);
+  if (at >= 0) pins.splice(at, 1);
+  else pins.push(text);
+  savePins();
+  return at < 0;
+}
+
+renderPins();
+
 /**
  * What lands in the clipboard: presentation prefixes are stripped so the text
  * pastes runnable — `$ ` from commands, `+ ` when every diff line is an
@@ -1665,6 +1714,7 @@ function showPopover(n: GNode, cx: number, cy: number): void {
         `<li data-i="${i}"><div class="row"><span class="t">${e.t}</span>` +
         `<span class="tx">${diffHtml(e.full)}</span>` +
         (e.output ? `<button class="ob" title="show tool output">▸ out</button>` : '') +
+        `<button class="pn${pins.includes(e.full) ? ' pinned' : ''}" title="pin to the left panel">${pins.includes(e.full) ? '★' : '☆'}</button>` +
         `<button class="cp" title="copy this line">⧉</button></div>` +
         (e.output ? `<pre class="outb" hidden>${escapeHtml(e.output)}</pre>` : '') +
         `</li>`,
@@ -1693,6 +1743,13 @@ function showPopover(n: GNode, cx: number, cy: number): void {
     (li.querySelector('.cp') as HTMLElement).addEventListener('click', (evt) => {
       evt.stopPropagation();
       void copyText(stripForCopy(e.full), evt.currentTarget as HTMLElement);
+    });
+    const pinBtn = li.querySelector('.pn') as HTMLElement;
+    pinBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      const nowPinned = togglePin(e.full);
+      pinBtn.textContent = nowPinned ? '★' : '☆';
+      pinBtn.classList.toggle('pinned', nowPinned);
     });
   });
   const all = popover.querySelector<HTMLElement>('#copy-all');
