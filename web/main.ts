@@ -343,6 +343,21 @@ async function attachImage(blob: Blob): Promise<void> {
   promptInput.focus();
 }
 
+/** Minimal, dependency-free markdown for reply text (input is escaped first). */
+function miniMarkdown(md: string): string {
+  let s = escapeHtml(md);
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => `<pre class="md-code">${code}</pre>`);
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
+  s = s.replace(/^#{1,4}\s+(.+)$/gm, '<strong class="md-h">$1</strong>');
+  s = s.replace(
+    /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+  );
+  return s;
+}
+
 // ---- reply panel: Claude's final message / ask for the focused session
 const replyPanel = document.getElementById('reply-panel') as HTMLDivElement;
 const replyTitle = replyPanel.querySelector('.rp-title') as HTMLElement;
@@ -361,7 +376,7 @@ function updateReplyPanel(): void {
   if (show && s) {
     replyTitle.textContent =
       s.state === 'attention' ? `${s.label} — needs your permission` : `${s.label} — waiting for you`;
-    replyBody.textContent = s.lastReply!;
+    replyBody.innerHTML = miniMarkdown(s.lastReply!);
   }
 }
 

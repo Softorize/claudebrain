@@ -400,6 +400,26 @@ html, body {
   max-height: 32vh;
   overflow-y: auto;
 }
+#reply-panel .rp-body strong { color: #eef4fb; }
+#reply-panel .rp-body em { color: #d7e2ef; }
+#reply-panel .rp-body code {
+  background: #121a28;
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #7dd3fc;
+}
+#reply-panel .rp-body .md-code {
+  display: block;
+  background: #070a10;
+  border-left: 2px solid #223049;
+  border-radius: 0 4px 4px 0;
+  padding: 6px 8px;
+  margin: 4px 0;
+  overflow-x: auto;
+  color: #8fa0b5;
+}
+#reply-panel .rp-body .md-h { display: block; margin-top: 4px; }
+#reply-panel .rp-body a { color: #7dd3fc; }
 
 #prompt-bar {
   position: fixed;
