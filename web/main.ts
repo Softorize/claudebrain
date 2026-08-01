@@ -163,6 +163,7 @@ function setFocus(sid: string | null): void {
   localStorage.setItem('claudebrain-focus', sid ?? '');
   picker.value = sid ?? 'all';
   applyFeedFocus();
+  renderPins();
   autoCamera = true;
   hidePopover();
 }
@@ -183,6 +184,59 @@ function updatePicker(): void {
 
 function applyFeedFocus(): void {
   for (const [sid, g] of feedGroups) g.wrap.style.display = inFocus(sid) ? '' : 'none';
+}
+
+/** Drop every trace of a session from the client (graph, feed, pending, pulses). */
+function purgeSession(sid: string): void {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    if (nodes[i].sid === sid) {
+      nodeById.delete(nodes[i].id);
+      nodes.splice(i, 1);
+    }
+  }
+  for (let i = edges.length - 1; i >= 0; i--) {
+    const e = edges[i];
+    const a = typeof e.source === 'object' ? (e.source as GNode) : nodeById.get(String(e.source));
+    if (!a || a.sid === sid) {
+      edgeIds.delete(e.id);
+      edgeHeat.delete(e.id);
+      edges.splice(i, 1);
+    }
+  }
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    if (pulses[i].sid === sid) pulses.splice(i, 1);
+  }
+  for (const key of [...pending.keys()]) {
+    if (key.startsWith(`${sid}\0`)) pending.delete(key);
+  }
+  const g = feedGroups.get(sid);
+  if (g) {
+    g.wrap.remove();
+    feedGroups.delete(sid);
+  }
+  sessions.delete(sid);
+  const hadPins = pins.some((p) => p.sid === sid);
+  if (hadPins) {
+    pins = pins.filter((p) => p.sid !== sid);
+    savePins();
+  }
+  if (focusSid === sid) setFocus(null);
+  pickerSig = '';
+  updatePicker();
+  simDirty = true;
+  hidePopover();
+}
+
+async function removeSession(sid: string): Promise<void> {
+  const s = sessions.get(sid);
+  if (!s) return;
+  if (!window.confirm(`Remove session “${s.label}” and delete its event log?`)) return;
+  try {
+    await fetch(`/api/session?sid=${encodeURIComponent(sid)}&token=${token}`, { method: 'DELETE' });
+  } catch {
+    // still purge locally; the log will age out of the replay window anyway
+  }
+  purgeSession(sid);
 }
 
 /** Toast for a background session that needs the user; click jumps to it. */
@@ -281,7 +335,8 @@ function feedGroupFor(sid: string): FeedGroup {
   const header = document.createElement('div');
   header.className = 'feed-group-header';
   header.innerHTML =
-    '<span class="chev">▾</span><span class="sdot"></span><span class="name"></span><span class="cnt"></span>';
+    '<span class="chev">▾</span><span class="sdot"></span><span class="name"></span><span class="cnt"></span>' +
+    '<button class="gx" title="remove session and delete its log">✕</button>';
   const list = document.createElement('ul');
   wrap.append(header, list);
   g = {
@@ -298,6 +353,10 @@ function feedGroupFor(sid: string): FeedGroup {
   header.addEventListener('click', () => {
     group.collapsed = !group.collapsed;
     group.wrap.classList.toggle('collapsed', group.collapsed);
+  });
+  (header.querySelector('.gx') as HTMLElement).addEventListener('click', (evt) => {
+    evt.stopPropagation();
+    void removeSession(sid);
   });
   feedGroups.set(sid, g);
   feedEl.prepend(wrap);
@@ -405,9 +464,14 @@ function ensureSession(ev: BrainEvent): SessionInfo {
   }
   const center = sessionCenter(sessions.size);
   const base = ev.cwd ? ev.cwd.split('/').filter(Boolean).pop() ?? ev.sid : ev.sid;
+  // several sessions in the same folder get distinct names: base, base #2, #3…
+  const sameBase = [...sessions.values()].filter(
+    (x) => x.label === base || x.label.startsWith(`${base} #`),
+  ).length;
+  const label = sameBase === 0 ? base : `${base} #${sameBase + 1}`;
   s = {
     sid: ev.sid,
-    label: base,
+    label,
     cwd: ev.cwd,
     center,
     state: 'active',
@@ -420,7 +484,7 @@ function ensureSession(ev: BrainEvent): SessionInfo {
     ripples: [],
   };
   sessions.set(ev.sid, s);
-  const root = addNode({ id: `s:${ev.sid}`, kind: 'session', label: base, sid: ev.sid, depth: 0 });
+  const root = addNode({ id: `s:${ev.sid}`, kind: 'session', label, sid: ev.sid, depth: 0 });
   root.fx = center.x;
   root.fy = center.y;
   return s;
@@ -1691,9 +1755,16 @@ function hitTest(cx: number, cy: number): GNode | null {
 const PINS_KEY = 'claudebrain-pins';
 const pinPanel = document.getElementById('pin-panel') as HTMLDivElement;
 const pinsEl = document.getElementById('pins') as HTMLUListElement;
-let pins: string[] = [];
+
+interface Pin {
+  sid: string; // session the command was pinned from ('' = legacy/global)
+  text: string;
+}
+let pins: Pin[] = [];
 try {
-  pins = JSON.parse(localStorage.getItem(PINS_KEY) ?? '[]');
+  const raw = JSON.parse(localStorage.getItem(PINS_KEY) ?? '[]');
+  // migrate the old plain-string format
+  pins = raw.map((p: unknown) => (typeof p === 'string' ? { sid: '', text: p } : (p as Pin)));
 } catch {
   pins = [];
 }
@@ -1703,21 +1774,27 @@ function savePins(): void {
   renderPins();
 }
 
+/** Pins are session-scoped: focused view shows that session's pins only. */
+function visiblePins(): Pin[] {
+  return focusSid ? pins.filter((p) => p.sid === focusSid) : pins;
+}
+
 function renderPins(): void {
-  pinPanel.hidden = pins.length === 0;
+  const shown = visiblePins();
+  pinPanel.hidden = shown.length === 0;
   pinsEl.innerHTML = '';
-  pins.forEach((text, idx) => {
+  for (const pin of shown) {
     const li = document.createElement('li');
     li.innerHTML =
       `<span class="tx"></span>` +
       `<button class="pc" title="copy">⧉</button>` +
       `<button class="px" title="unpin">✕</button>`;
-    (li.querySelector('.tx') as HTMLElement).innerHTML = diffHtml(text);
+    (li.querySelector('.tx') as HTMLElement).innerHTML = diffHtml(pin.text);
     (li.querySelector('.pc') as HTMLElement).addEventListener('click', (evt) => {
-      void copyText(stripForCopy(text), evt.currentTarget as HTMLElement);
+      void copyText(stripForCopy(pin.text), evt.currentTarget as HTMLElement);
     });
     (li.querySelector('.px') as HTMLElement).addEventListener('click', () => {
-      pins.splice(idx, 1);
+      pins = pins.filter((p) => p !== pin);
       savePins();
     });
     const tx = li.querySelector('.tx') as HTMLElement;
@@ -1727,13 +1804,17 @@ function renderPins(): void {
       () => tx.classList.remove('x'),
     );
     pinsEl.append(li);
-  });
+  }
 }
 
-function togglePin(text: string): boolean {
-  const at = pins.indexOf(text);
+function isPinned(sid: string, text: string): boolean {
+  return pins.some((p) => p.sid === sid && p.text === text);
+}
+
+function togglePin(sid: string, text: string): boolean {
+  const at = pins.findIndex((p) => p.sid === sid && p.text === text);
   if (at >= 0) pins.splice(at, 1);
-  else pins.push(text);
+  else pins.push({ sid, text });
   savePins();
   return at < 0;
 }
@@ -1817,7 +1898,7 @@ function showPopover(n: GNode, cx: number, cy: number): void {
         `<li data-i="${i}"><div class="row"><span class="t">${e.t}</span>` +
         `<span class="tx">${diffHtml(e.full)}</span>` +
         (e.output ? `<button class="ob" title="show tool output">▸ out</button>` : '') +
-        `<button class="pn${pins.includes(e.full) ? ' pinned' : ''}" title="pin to the left panel">${pins.includes(e.full) ? '★' : '☆'}</button>` +
+        `<button class="pn${isPinned(n.sid, e.full) ? ' pinned' : ''}" title="pin to the left panel">${isPinned(n.sid, e.full) ? '★' : '☆'}</button>` +
         `<button class="cp" title="copy this line">⧉</button></div>` +
         (e.output ? `<pre class="outb" hidden>${escapeHtml(e.output)}</pre>` : '') +
         `</li>`,
@@ -1850,7 +1931,7 @@ function showPopover(n: GNode, cx: number, cy: number): void {
     const pinBtn = li.querySelector('.pn') as HTMLElement;
     pinBtn.addEventListener('click', (evt) => {
       evt.stopPropagation();
-      const nowPinned = togglePin(e.full);
+      const nowPinned = togglePin(n.sid, e.full);
       pinBtn.textContent = nowPinned ? '★' : '☆';
       pinBtn.classList.toggle('pinned', nowPinned);
     });
@@ -1930,6 +2011,8 @@ function connect(): void {
       applyGraph(ev, true);
       feedAdd(ev);
       updatePicker();
+    } else if (data.type === 'session-removed') {
+      if (sessions.has(data.sid)) purgeSession(data.sid);
     }
   };
 }

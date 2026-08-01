@@ -79,6 +79,23 @@ export function startServer(token: string): Promise<BrainServer> {
       return;
     }
 
+    // Remove a session: delete its log and tell every viewer to drop it.
+    if (req.method === 'DELETE' && url.pathname === '/api/session') {
+      if (!authorized(req, url)) {
+        res.writeHead(401).end();
+        return;
+      }
+      const sid = url.searchParams.get('sid') ?? '';
+      if (!sid) {
+        res.writeHead(400).end();
+        return;
+      }
+      store.removeSession(sid);
+      broadcast({ type: 'session-removed', sid });
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+      return;
+    }
+
     // Serve local image files for hover previews (viewer-authenticated only).
     if (req.method === 'GET' && url.pathname === '/api/file') {
       if (!authorized(req, url)) {

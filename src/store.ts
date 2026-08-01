@@ -23,6 +23,10 @@ export class EventStore {
     fs.appendFile(this.logPath(ev.sid), JSON.stringify(ev) + '\n', () => {});
   }
 
+  removeSession(sid: string): void {
+    fs.rm(this.logPath(sid), { force: true }, () => {});
+  }
+
   /**
    * Events for all sessions active within the replay window, oldest first.
    * Recency comes from log file mtime, so nothing is lost on abrupt shutdown.
