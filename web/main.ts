@@ -1361,6 +1361,17 @@ let dragging = false;
 let dragMoved = false;
 let dragNode: GNode | null = null;
 let dragStart = { x: 0, y: 0, camX: 0, camY: 0 };
+// ⌘ + one-finger trackpad movement = zoom (anchored where the gesture began)
+let cmdZoom: { x: number; y: number; lastY: number } | null = null;
+
+function zoomAt(px: number, py: number, factor: number): void {
+  const k2 = Math.min(3, Math.max(0.08, cam.k * factor));
+  const wx = (px - cam.x) / cam.k;
+  const wy = (py - cam.y) / cam.k;
+  cam.x = px - wx * k2;
+  cam.y = py - wy * k2;
+  cam.k = k2;
+}
 
 canvas.addEventListener('mousedown', (e) => {
   dragging = true;
@@ -1396,9 +1407,28 @@ window.addEventListener('mousemove', (e) => {
     cam.y = dragStart.camY + dy;
     return;
   }
+  if (e.metaKey && e.target === canvas) {
+    if (!cmdZoom) cmdZoom = { x: e.clientX, y: e.clientY, lastY: e.clientY };
+    const dy = e.clientY - cmdZoom.lastY;
+    cmdZoom.lastY = e.clientY;
+    if (dy !== 0) {
+      autoCamera = false;
+      zoomAt(cmdZoom.x, cmdZoom.y, Math.exp(-dy * 0.006)); // move up → zoom in
+    }
+    canvas.style.cursor = 'zoom-in';
+    return;
+  }
+  cmdZoom = null;
   hoverNode = hitTest(e.clientX, e.clientY);
   canvas.style.cursor = hoverNode ? 'grab' : 'default';
   updateImagePreview(e.clientX, e.clientY);
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Meta') {
+    cmdZoom = null;
+    canvas.style.cursor = hoverNode ? 'grab' : 'default';
+  }
 });
 
 // ---------------------------------------------------------------- image preview
@@ -1501,12 +1531,7 @@ canvas.addEventListener(
   (e) => {
     e.preventDefault();
     autoCamera = false;
-    const k2 = Math.min(3, Math.max(0.08, cam.k * Math.exp(-e.deltaY * 0.0014)));
-    const wx = (e.clientX - cam.x) / cam.k;
-    const wy = (e.clientY - cam.y) / cam.k;
-    cam.x = e.clientX - wx * k2;
-    cam.y = e.clientY - wy * k2;
-    cam.k = k2;
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0014));
   },
   { passive: false },
 );

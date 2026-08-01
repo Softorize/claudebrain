@@ -93,6 +93,7 @@ brew uninstall claudebrain    # if installed via brew
 | Interaction | Effect |
 |---|---|
 | Scroll | zoom (semantic: directories collapse/expand) |
+| ⌘ + move pointer up/down | zoom in/out, anchored where the gesture began |
 | Drag empty space | pan |
 | Double-click empty space | return to auto-fit camera |
 | Drag a node | move it; it stays pinned where dropped |
