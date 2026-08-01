@@ -164,6 +164,7 @@ function setFocus(sid: string | null): void {
   picker.value = sid ?? 'all';
   applyFeedFocus();
   renderPins();
+  updateFollowBtn();
   autoCamera = true;
   hidePopover();
 }
@@ -269,10 +270,30 @@ const rowPaths = new WeakMap<HTMLLIElement, string[]>();
 const rowFull = new WeakMap<HTMLLIElement, string>();
 const rowSummary = new WeakMap<HTMLLIElement, string>();
 
-// ---- live follow mode: incoming actions arrive pre-expanded
-let following = false;
+// ---- live follow mode: incoming actions arrive pre-expanded.
+// Follow is per-session: the toggle binds to the picker's current selection
+// ('all sessions' → follow everything).
+let followAll = false;
+const followSids = new Set<string>();
 const followExpanded: HTMLLIElement[] = [];
 const FOLLOW_KEEP_EXPANDED = 12;
+
+function shouldFollow(sid: string): boolean {
+  return followAll || followSids.has(sid);
+}
+
+function followActiveForSelection(): boolean {
+  return focusSid ? followSids.has(focusSid) : followAll;
+}
+
+function updateFollowBtn(): void {
+  const on = followActiveForSelection();
+  followBtn.classList.toggle('on', on);
+  followBtn.textContent = on ? '⦿ following' : '⦿ follow';
+  followBtn.title = focusSid
+    ? 'expand incoming actions live for this session'
+    : 'expand incoming actions live for all sessions';
+}
 const HOVER_EXPAND_MS = 1000; // dwell time before a hovered line expands
 
 /** Expand `tx` after a 1s dwell; collapse (via onLeave) when the pointer leaves. */
@@ -289,12 +310,16 @@ function attachDelayedExpand(el: HTMLElement, onExpand: () => void, onLeave: () 
 
 const followBtn = document.getElementById('follow-toggle') as HTMLButtonElement;
 followBtn.addEventListener('click', () => {
-  following = !following;
-  followBtn.classList.toggle('on', following);
-  followBtn.textContent = following ? '⦿ following' : '⦿ follow';
-  if (!following) {
+  if (focusSid) {
+    if (followSids.has(focusSid)) followSids.delete(focusSid);
+    else followSids.add(focusSid);
+  } else {
+    followAll = !followAll;
+  }
+  if (!followActiveForSelection()) {
     for (const li of followExpanded.splice(0)) compactRow(li);
   }
+  updateFollowBtn();
 });
 
 function expandRow(li: HTMLLIElement): void {
@@ -1050,14 +1075,15 @@ function feedAdd(ev: BrainEvent): void {
   // most recently active session bubbles to the top
   if (feedEl.firstChild !== g.wrap) feedEl.prepend(g.wrap);
 
-  if (following && rowFull.has(li)) {
+  if (shouldFollow(ev.sid) && rowFull.has(li)) {
     expandRow(li);
     followExpanded.push(li);
     while (followExpanded.length > FOLLOW_KEEP_EXPANDED) {
       const old = followExpanded.shift();
       if (old) compactRow(old);
     }
-    feedEl.scrollTop = 0;
+    // keep the freshest action in view while following
+    li.scrollIntoView({ block: 'nearest' });
   }
 
   // let PostToolUse find this row to stamp duration / error state
