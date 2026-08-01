@@ -53,6 +53,7 @@ interface GNode extends SimulationNodeDatum {
   events: NodeEvent[];
   flashT0?: number;
   flashColor?: string;
+  filePath?: string; // absolute path for file nodes (image previews)
 }
 
 interface GEdge extends SimulationLinkDatum<GNode> {
@@ -149,6 +150,40 @@ const feedEl = document.getElementById('feed') as HTMLDivElement;
 const feedPanel = document.getElementById('feed-panel')!;
 const popover = document.getElementById('popover')!;
 const rowPaths = new WeakMap<HTMLLIElement, string[]>();
+const rowFull = new WeakMap<HTMLLIElement, string>();
+const rowSummary = new WeakMap<HTMLLIElement, string>();
+
+// ---- live follow mode: incoming actions arrive pre-expanded
+let following = false;
+const followExpanded: HTMLLIElement[] = [];
+const FOLLOW_KEEP_EXPANDED = 12;
+
+const followBtn = document.getElementById('follow-toggle') as HTMLButtonElement;
+followBtn.addEventListener('click', () => {
+  following = !following;
+  followBtn.classList.toggle('on', following);
+  followBtn.textContent = following ? '⦿ following' : '⦿ follow';
+  if (!following) {
+    for (const li of followExpanded.splice(0)) compactRow(li);
+  }
+});
+
+function expandRow(li: HTMLLIElement): void {
+  const full = rowFull.get(li);
+  if (!full) return;
+  const tx = li.querySelector('.tx') as HTMLElement;
+  tx.classList.add('x');
+  tx.innerHTML = diffHtml(full);
+  li.removeAttribute('title');
+}
+
+function compactRow(li: HTMLLIElement): void {
+  const tx = li.querySelector('.tx') as HTMLElement;
+  tx.classList.remove('x');
+  tx.textContent = rowSummary.get(li) ?? tx.textContent;
+  const full = rowFull.get(li);
+  if (full) li.title = full;
+}
 
 interface FeedGroup {
   wrap: HTMLDivElement;
@@ -626,6 +661,7 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
               : '';
       if (filePath && filePath.includes('/')) {
         target = ensureFileNode(s, filePath);
+        target.filePath = filePath;
       } else if (tool === 'Bash' && typeof input.command === 'string') {
         const key = input.command.trim().split(/\s+/).slice(0, 2).join(' ').slice(0, 40);
         target = ensureResNode(s, toolNode, key, key);
@@ -814,9 +850,15 @@ function feedAdd(ev: BrainEvent): void {
   (li.querySelector('.tx') as HTMLElement).textContent = text;
   if (fullText) li.title = fullText;
   rowPaths.set(li, pathIds);
+  rowSummary.set(li, text);
+  if (fullText) rowFull.set(li, fullText);
   li.addEventListener('mouseenter', () => {
     highlight.ids = new Set(rowPaths.get(li));
     highlight.until = performance.now() + 2000;
+    expandRow(li);
+  });
+  li.addEventListener('mouseleave', () => {
+    if (!followExpanded.includes(li)) compactRow(li);
   });
   li.addEventListener('click', () => {
     const last = rowPaths.get(li)?.slice(-1)[0];
@@ -829,6 +871,16 @@ function feedAdd(ev: BrainEvent): void {
   g.cntEl.textContent = String(g.rows);
   // most recently active session bubbles to the top
   if (feedEl.firstChild !== g.wrap) feedEl.prepend(g.wrap);
+
+  if (following && rowFull.has(li)) {
+    expandRow(li);
+    followExpanded.push(li);
+    while (followExpanded.length > FOLLOW_KEEP_EXPANDED) {
+      const old = followExpanded.shift();
+      if (old) compactRow(old);
+    }
+    feedEl.scrollTop = 0;
+  }
 
   // let PostToolUse find this row to stamp duration / error state
   if (ev.event === 'PreToolUse') {
@@ -1330,6 +1382,79 @@ window.addEventListener('mousemove', (e) => {
   }
   hoverNode = hitTest(e.clientX, e.clientY);
   canvas.style.cursor = hoverNode ? 'grab' : 'default';
+  updateImagePreview(e.clientX, e.clientY);
+});
+
+// ---------------------------------------------------------------- image preview
+
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg)$/i;
+const imgPreview = document.getElementById('img-preview') as HTMLDivElement;
+const imgPreviewImg = imgPreview.querySelector('img') as HTMLImageElement;
+const lightbox = document.getElementById('lightbox') as HTMLDivElement;
+const lightboxImg = lightbox.querySelector('img') as HTMLImageElement;
+let previewFor: GNode | null = null;
+let previewShowTimer = 0;
+let previewHideTimer = 0;
+let overPreview = false;
+
+function imageUrl(n: GNode): string {
+  return `/api/file?path=${encodeURIComponent(n.filePath!)}&token=${token}`;
+}
+
+function isImageNode(n: GNode | null): n is GNode {
+  return !!n && n.kind === 'file' && !!n.filePath && IMAGE_RE.test(n.label);
+}
+
+function updateImagePreview(cx: number, cy: number): void {
+  if (isImageNode(hoverNode)) {
+    clearTimeout(previewHideTimer);
+    if (previewFor !== hoverNode) {
+      clearTimeout(previewShowTimer);
+      const n = hoverNode;
+      previewShowTimer = window.setTimeout(() => {
+        previewFor = n;
+        imgPreviewImg.src = imageUrl(n);
+        imgPreview.hidden = false;
+        imgPreview.style.left = `${Math.min(cx + 16, window.innerWidth - 300)}px`;
+        imgPreview.style.top = `${Math.min(cy + 16, window.innerHeight - 260)}px`;
+      }, 180);
+    }
+  } else if (previewFor && !overPreview) {
+    clearTimeout(previewShowTimer);
+    clearTimeout(previewHideTimer);
+    previewHideTimer = window.setTimeout(() => {
+      if (!overPreview && !isImageNode(hoverNode)) {
+        imgPreview.hidden = true;
+        previewFor = null;
+      }
+    }, 250);
+  }
+}
+
+imgPreview.addEventListener('mouseenter', () => (overPreview = true));
+imgPreview.addEventListener('mouseleave', () => {
+  overPreview = false;
+  imgPreview.hidden = true;
+  previewFor = null;
+});
+imgPreview.addEventListener('click', () => {
+  if (previewFor) openLightbox(imageUrl(previewFor));
+});
+
+function openLightbox(src: string): void {
+  lightboxImg.src = src;
+  lightbox.hidden = false;
+  imgPreview.hidden = true;
+}
+
+lightbox.addEventListener('click', () => (lightbox.hidden = true));
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    lightbox.hidden = true;
+    imgPreview.hidden = true;
+    previewFor = null;
+    hidePopover();
+  }
 });
 
 window.addEventListener('mouseup', (e) => {

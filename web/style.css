@@ -64,12 +64,33 @@ html, body {
 #feed-panel.hidden { transform: translateX(100%); }
 
 #feed-header {
-  padding: 10px 14px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 7px 14px;
   color: #5b6b80;
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   border-bottom: 1px solid #131a26;
+}
+
+#follow-toggle {
+  background: none;
+  border: 1px solid #223049;
+  border-radius: 4px;
+  color: #5b6b80;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+#follow-toggle:hover { color: #d7e2ef; }
+#follow-toggle.on {
+  color: #4ade80;
+  border-color: #4ade80;
+  box-shadow: 0 0 8px #4ade8033;
 }
 
 #feed {
@@ -137,6 +158,16 @@ html, body {
 #feed li .ic { flex: none; }
 #feed li .tx { overflow: hidden; text-overflow: ellipsis; flex: 1; }
 #feed li .dur { color: #45536a; flex: none; font-size: 10.5px; }
+
+/* expanded feed rows (follow mode / hover): full text, wrapped, diff-colored */
+#feed li .tx.x {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #d7e2ef;
+}
+#feed li:has(.tx.x) { align-items: flex-start; }
+.dl { color: #f87171; }
+.al { color: #4ade80; }
 
 #feed li.prompt { color: #c9b8e8; }
 #feed li.prompt .ic { color: #c084fc; }
@@ -221,8 +252,50 @@ html, body {
 }
 #popover li:hover .cp { visibility: visible; }
 
-/* git-diff coloring inside event lines */
-#popover .dl { color: #f87171; }
-#popover .al { color: #4ade80; }
+/* git-diff line backgrounds on hover */
 #popover li:hover .dl { background: #f8717114; }
 #popover li:hover .al { background: #4ade8014; }
+
+#img-preview {
+  position: fixed;
+  z-index: 5;
+  background: #0d1119f2;
+  border: 1px solid #223049;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 30px #000c;
+  cursor: zoom-in;
+}
+#img-preview img {
+  display: block;
+  max-width: 260px;
+  max-height: 200px;
+  border-radius: 4px;
+}
+#img-preview .cap {
+  color: #45536a;
+  font-size: 10px;
+  text-align: center;
+  padding-top: 4px;
+}
+
+#lightbox[hidden],
+#img-preview[hidden] { display: none !important; }
+
+#lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  background: #05070acc;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+#lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 6px;
+  box-shadow: 0 12px 60px #000;
+}

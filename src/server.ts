@@ -17,6 +17,15 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
   '/style.css': { file: 'style.css', type: 'text/css' },
 };
 
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+};
+
 export interface BrainServer {
   close(): void;
 }
@@ -66,6 +75,31 @@ export function startServer(token: string): Promise<BrainServer> {
         // v1 always allows immediately. The request/response shape exists so v2
         // breakpoints can hold this response open and return a decision.
         res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+      });
+      return;
+    }
+
+    // Serve local image files for hover previews (viewer-authenticated only).
+    if (req.method === 'GET' && url.pathname === '/api/file') {
+      if (!authorized(req, url)) {
+        res.writeHead(401).end();
+        return;
+      }
+      const p = url.searchParams.get('path') ?? '';
+      const mime = IMAGE_MIME[path.extname(p).toLowerCase()];
+      if (!path.isAbsolute(p) || !mime) {
+        res.writeHead(403).end();
+        return;
+      }
+      fs.stat(p, (err, st) => {
+        if (err || !st.isFile() || st.size > 25 * 1024 * 1024) {
+          res.writeHead(404).end();
+          return;
+        }
+        fs.readFile(p, (err2, data) => {
+          if (err2) res.writeHead(404).end();
+          else res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store' }).end(data);
+        });
       });
       return;
     }

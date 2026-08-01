@@ -32,6 +32,10 @@ as a *"which session needs me?"* radar.
 - **Semantic zoom** — zoomed out, directories collapse into aggregate nodes with
   activity counts; zoom in to expand. Drag nodes to rearrange; they stay pinned
   (double-click to release).
+- **Live follow mode** — toggle *⦿ follow* in the feed and incoming actions
+  arrive pre-expanded: full commands and colored diffs, no hovering needed.
+- **Image previews** — hover a `.png`/`.jpg`/`.svg` file node for a thumbnail
+  of the actual file; click it for a full-size lightbox (Esc closes).
 - **Late join & persistence** — events are logged to disk; open the viewer
   mid-session and the whole graph rebuilds instantly.
 - **Zero risk to your sessions** — hooks are fire-safe: if the viewer isn't
@@ -95,9 +99,12 @@ brew uninstall claudebrain    # if installed via brew
 | Double-click a node | unpin it back into the physics |
 | Click a node | popover with its event history, per-line copy + copy-all |
 | Hover a popover line | expand the full command / diff in place |
-| Hover a feed row | flash the action's path in the graph |
+| Hover a feed row | expand it in place + flash the action's path in the graph |
 | Click a feed row | jump to that node |
 | Session header in feed | click to collapse/expand that session's activity |
+| ⦿ follow (feed header) | live mode: new actions arrive expanded (last 12 stay open) |
+| Hover an image file node | thumbnail preview of the file |
+| Click the preview | full-size lightbox; Esc or click closes |
 
 ## How it works
 
