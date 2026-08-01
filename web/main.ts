@@ -447,15 +447,23 @@ promptInput.addEventListener('keydown', (e) => {
   e.stopPropagation(); // keep Escape/shortcuts from closing popovers while typing
 });
 
-// drop a screenshot anywhere on the bar, or paste one into the input
-promptBar.addEventListener('dragover', (e) => {
+// Drop a screenshot anywhere on the window — it attaches to the prompt bar.
+// Window-level handlers double as a guard: without preventDefault a missed
+// drop would navigate the whole app away to the image file.
+window.addEventListener('dragover', (e) => {
   e.preventDefault();
-  promptBar.classList.add('dropping');
+  if (!promptBar.hidden && [...(e.dataTransfer?.items ?? [])].some((it) => it.kind === 'file')) {
+    promptBar.classList.add('dropping');
+  }
 });
-promptBar.addEventListener('dragleave', () => promptBar.classList.remove('dropping'));
-promptBar.addEventListener('drop', (e) => {
+window.addEventListener('dragleave', (e) => {
+  // leaving the window entirely — child-to-child transitions keep the highlight
+  if (!e.relatedTarget) promptBar.classList.remove('dropping');
+});
+window.addEventListener('drop', (e) => {
   e.preventDefault();
   promptBar.classList.remove('dropping');
+  if (promptBar.hidden) return;
   for (const f of e.dataTransfer?.files ?? []) {
     if (f.type.startsWith('image/')) void attachImage(f);
   }
