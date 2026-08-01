@@ -169,6 +169,15 @@ html, body {
 .dl { color: #f87171; }
 .al { color: #4ade80; }
 
+/* bash / action syntax highlighting */
+.hcmd { color: #7dd3fc; font-weight: 600; }
+.hstr { color: #e6c07b; }
+.hflag { color: #8fa0b5; }
+.hop { color: #c084fc; }
+.henv { color: #f0abfc; }
+.hcmt { color: #45536a; font-style: italic; }
+.hkey { color: #5b6b80; }
+
 #feed li.prompt { color: #c9b8e8; }
 #feed li.prompt .ic { color: #c084fc; }
 #feed li.skill .ic { color: #c084fc; }

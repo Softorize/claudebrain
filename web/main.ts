@@ -180,7 +180,8 @@ function expandRow(li: HTMLLIElement): void {
 function compactRow(li: HTMLLIElement): void {
   const tx = li.querySelector('.tx') as HTMLElement;
   tx.classList.remove('x');
-  tx.textContent = rowSummary.get(li) ?? tx.textContent;
+  const summary = rowSummary.get(li);
+  if (summary !== undefined) tx.innerHTML = diffHtml(summary);
   const full = rowFull.get(li);
   if (full) li.title = full;
 }
@@ -847,7 +848,7 @@ function feedAdd(ev: BrainEvent): void {
   li.innerHTML = `<span class="t"></span><span class="ic"></span><span class="tx"></span><span class="dur"></span>`;
   (li.querySelector('.t') as HTMLElement).textContent = fmtTime(ev.t);
   (li.querySelector('.ic') as HTMLElement).textContent = icon;
-  (li.querySelector('.tx') as HTMLElement).textContent = text;
+  (li.querySelector('.tx') as HTMLElement).innerHTML = diffHtml(text);
   if (fullText) li.title = fullText;
   rowPaths.set(li, pathIds);
   rowSummary.set(li, text);
@@ -1540,15 +1541,38 @@ async function copyText(text: string, button: HTMLElement): Promise<void> {
   }
 }
 
-/** Escaped HTML with git-diff coloring for −/+ prefixed lines. */
+/** Minimal bash syntax highlighting: strings, comments, env vars, operators, flags. */
+function hlBash(raw: string): string {
+  const re =
+    /('[^']*'?|"[^"]*"?)|(#[^\n]*)|(\$\{[^}]*\}|\$\(|\$[A-Za-z_][A-Za-z0-9_]*)|(&&|\|\||\||;|2>&1|>>|>|<)|((?:^|\s)--?[A-Za-z0-9][\w-]*)/g;
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) {
+    out += escapeHtml(raw.slice(last, m.index));
+    const cls = m[1] ? 'hstr' : m[2] ? 'hcmt' : m[3] ? 'henv' : m[4] ? 'hop' : 'hflag';
+    out += `<span class="${cls}">${escapeHtml(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(raw.slice(last));
+  // brighten the leading command word (and after newlines, best-effort)
+  return out.replace(/^([A-Za-z0-9_.\/~-]+)/, '<span class="hcmd">$1</span>');
+}
+
+/** Escaped HTML with git-diff coloring, bash highlighting, and key: labels. */
 function diffHtml(full: string): string {
+  if (full.startsWith('$ ')) {
+    return `<span class="hop">$</span> ${hlBash(full.slice(2))}`;
+  }
   return full
     .split('\n')
-    .map((line) => {
-      const esc = escapeHtml(line);
-      if (line.startsWith('−')) return `<span class="dl">${esc}</span>`;
-      if (line.startsWith('+')) return `<span class="al">${esc}</span>`;
-      return esc;
+    .map((line, i) => {
+      if (line.startsWith('−')) return `<span class="dl">${escapeHtml(line)}</span>`;
+      if (line.startsWith('+')) return `<span class="al">${escapeHtml(line)}</span>`;
+      let h = escapeHtml(line);
+      if (i === 0) h = h.replace(/^([A-Za-z][\w✦⧉@ ]*?)(\s)/, '<span class="hcmd">$1</span>$2');
+      h = h.replace(/(^|· )([\w_]+):(?=\s)/g, '$1<span class="hkey">$2:</span>');
+      return h;
     })
     .join('\n');
 }
