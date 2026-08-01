@@ -31,8 +31,14 @@ export interface BrainServer {
   close(): void;
 }
 
-// Commands a Claude Code process shows up as in `tmux list-panes`.
-const CLAUDE_PANE_COMMANDS = new Set(['claude', 'node', 'claudebrain', 'bun']);
+/**
+ * Does a tmux pane_current_command look like Claude Code? The CLI sets its
+ * process title to its bare version ("2.1.218"), so a pure version string is
+ * the strongest signal; also accept claude/node/bun. Never plain shells.
+ */
+function looksLikeClaudePane(cmd: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(cmd) || /^claude/i.test(cmd) || cmd === 'node' || cmd === 'bun';
+}
 
 /**
  * Find the tmux pane whose Claude Code session lives in `cwd` and type the
@@ -63,7 +69,7 @@ function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, pa
           const [id, cmd, panePath] = line.split('\t');
           return { id, cmd, panePath };
         })
-        .filter((p) => (p.panePath === cwd || p.panePath === resolvedCwd) && CLAUDE_PANE_COMMANDS.has(p.cmd));
+        .filter((p) => (p.panePath === cwd || p.panePath === resolvedCwd) && looksLikeClaudePane(p.cmd));
       if (candidates.length === 0) {
         cb('no tmux pane running Claude Code was found for this session’s folder');
         return;
