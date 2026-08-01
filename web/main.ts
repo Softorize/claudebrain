@@ -541,6 +541,10 @@ function toolSummary(tool: string, input: Record<string, unknown>): string {
   const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '');
   const base = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
   if (tool === 'Bash') return `$ ${str('command').slice(0, 48)}`;
+  if (tool === 'ToolSearch') {
+    const q = str('query');
+    return q.startsWith('select:') ? `⌕ load tool: ${q.slice(7).slice(0, 36)}` : `⌕ find tool: ${q.slice(0, 36)}`;
+  }
   if (tool === 'Skill') return `✦ ${str('skill') || str('name') || 'skill'}`;
   if (tool === 'Task' || tool === 'Agent') return `⧉ ${str('description').slice(0, 40) || 'agent'}`;
   const file = str('file_path') || str('notebook_path') || str('path');
@@ -556,6 +560,13 @@ function toolSummary(tool: string, input: Record<string, unknown>): string {
 function toolFullText(tool: string, input: Record<string, unknown>): string {
   const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '');
   if (tool === 'Bash') return `$ ${str('command')}`;
+  if (tool === 'ToolSearch') {
+    const q = str('query');
+    const what = q.startsWith('select:')
+      ? `loaded tool schema(s): ${q.slice(7).split(',').join(', ')}`
+      : `searched available tools for “${q}”`;
+    return `ToolSearch — ${what}\n(deferred tools are loaded on demand right before their first use)`;
+  }
   if (tool === 'Skill') return `✦ ${str('skill') || str('name') || 'skill'} ${str('args')}`.trim();
   if (tool === 'Task' || tool === 'Agent') return `⧉ ${str('description') || 'agent'}`;
   const file = str('file_path') || str('notebook_path') || str('path');
@@ -666,6 +677,10 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
       } else if (tool === 'Bash' && typeof input.command === 'string') {
         const key = input.command.trim().split(/\s+/).slice(0, 2).join(' ').slice(0, 40);
         target = ensureResNode(s, toolNode, key, key);
+      } else if (tool === 'ToolSearch' && typeof input.query === 'string') {
+        const q = input.query;
+        const name = q.startsWith('select:') ? q.slice(7) : q;
+        target = ensureResNode(s, toolNode, q.slice(0, 40), `⌕ ${name.slice(0, 22)}`);
       } else if (TASK_TOOLS.has(tool) && strField(input, TASK_ID_KEYS)) {
         const tid = strField(input, TASK_ID_KEYS);
         target = ensureSharedRes(s, toolNode, 'task', tid, `⌖ ${tid.slice(0, 18)}`);
