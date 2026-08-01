@@ -352,6 +352,50 @@ html, body {
 #popover li:hover .dl { background: #f8717114; }
 #popover li:hover .al { background: #4ade8014; }
 
+#prompt-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(calc(-50% - 160px)); /* visually centered left of the feed */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(620px, 60vw);
+  background: #0a0d14f0;
+  border: 1px solid #223049;
+  border-radius: 10px;
+  padding: 8px 10px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 30px #000a;
+}
+#prompt-bar:focus-within { border-color: #38bdf8; }
+#prompt-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: #d7e2ef;
+  font: inherit;
+  font-size: 12.5px;
+}
+#prompt-input::placeholder { color: #45536a; }
+#prompt-send {
+  background: none;
+  border: 1px solid #223049;
+  border-radius: 6px;
+  color: #7a8ba0;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  flex: none;
+}
+#prompt-send:hover { color: #d7e2ef; border-color: #38bdf8; }
+#prompt-status { font-size: 11px; flex: none; }
+#prompt-status.ok { color: #4ade80; }
+#prompt-status.err { color: #f87171; }
+
 #pin-panel {
   position: fixed;
   top: 42px;

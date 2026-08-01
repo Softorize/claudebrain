@@ -165,6 +165,7 @@ function setFocus(sid: string | null): void {
   applyFeedFocus();
   renderPins();
   updateFollowBtn();
+  updatePromptBar();
   autoCamera = true;
   hidePopover();
 }
@@ -239,6 +240,58 @@ async function removeSession(sid: string): Promise<void> {
   }
   purgeSession(sid);
 }
+
+// ---- prompt bar: type into the focused session's tmux pane from the UI
+const promptBar = document.getElementById('prompt-bar') as HTMLDivElement;
+const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
+const promptSend = document.getElementById('prompt-send') as HTMLButtonElement;
+const promptStatus = document.getElementById('prompt-status') as HTMLSpanElement;
+let promptStatusTimer = 0;
+
+function updatePromptBar(): void {
+  const s = focusSid ? sessions.get(focusSid) : null;
+  promptBar.hidden = !s;
+  if (s) promptInput.placeholder = `prompt ${s.label} — typed into its tmux pane…`;
+}
+
+function setPromptStatus(text: string, ok: boolean): void {
+  clearTimeout(promptStatusTimer);
+  promptStatus.textContent = text;
+  promptStatus.className = ok ? 'ok' : 'err';
+  promptStatusTimer = window.setTimeout(() => (promptStatus.textContent = ''), 5000);
+}
+
+async function sendPrompt(): Promise<void> {
+  const s = focusSid ? sessions.get(focusSid) : null;
+  const text = promptInput.value.trim();
+  if (!s || !text) return;
+  promptSend.disabled = true;
+  try {
+    const res = await fetch(`/api/prompt?token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid: s.sid, cwd: s.cwd, text }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      promptInput.value = '';
+      setPromptStatus('✓ sent', true);
+    } else {
+      setPromptStatus(data.error ?? `failed (${res.status})`, false);
+    }
+  } catch {
+    setPromptStatus('viewer server unreachable', false);
+  } finally {
+    promptSend.disabled = false;
+    promptInput.focus();
+  }
+}
+
+promptSend.addEventListener('click', () => void sendPrompt());
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') void sendPrompt();
+  e.stopPropagation(); // keep Escape/shortcuts from closing popovers while typing
+});
 
 /** Toast for a background session that needs the user; click jumps to it. */
 function showToast(s: SessionInfo, kind: 'waiting' | 'attention'): void {
@@ -2032,6 +2085,7 @@ function connect(): void {
       if (focusSid && !sessions.has(focusSid)) setFocus(null);
       updatePicker();
       applyFeedFocus();
+      updatePromptBar();
     } else if (data.type === 'event') {
       const ev: BrainEvent = data.event;
       applyGraph(ev, true);

@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HOST, PORT } from './config.js';
@@ -28,6 +29,58 @@ const IMAGE_MIME: Record<string, string> = {
 
 export interface BrainServer {
   close(): void;
+}
+
+// Commands a Claude Code process shows up as in `tmux list-panes`.
+const CLAUDE_PANE_COMMANDS = new Set(['claude', 'node', 'claudebrain', 'bun']);
+
+/**
+ * Find the tmux pane whose Claude Code session lives in `cwd` and type the
+ * prompt into it (literal keys, then Enter). Matching is by working directory
+ * plus a foreground command that looks like Claude Code — never a plain shell,
+ * so a prompt can't be typed into zsh and executed as a shell command.
+ */
+function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, panes?: number) => void): void {
+  execFile(
+    'tmux',
+    ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_current_command}\t#{pane_current_path}'],
+    (err, stdout) => {
+      if (err) {
+        cb('tmux is not available or no tmux server is running');
+        return;
+      }
+      // tmux reports resolved paths (/tmp → /private/tmp on macOS) — compare realpaths
+      let resolvedCwd = cwd;
+      try {
+        resolvedCwd = fs.realpathSync(cwd);
+      } catch {
+        // keep as-is; the session's folder may be gone
+      }
+      const candidates = stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [id, cmd, panePath] = line.split('\t');
+          return { id, cmd, panePath };
+        })
+        .filter((p) => (p.panePath === cwd || p.panePath === resolvedCwd) && CLAUDE_PANE_COMMANDS.has(p.cmd));
+      if (candidates.length === 0) {
+        cb('no tmux pane running Claude Code was found for this session’s folder');
+        return;
+      }
+      const pane = candidates[0];
+      execFile('tmux', ['send-keys', '-t', pane.id, '-l', text], (err2) => {
+        if (err2) {
+          cb('failed to type into the tmux pane');
+          return;
+        }
+        execFile('tmux', ['send-keys', '-t', pane.id, 'Enter'], (err3) => {
+          if (err3) cb('typed the prompt but failed to submit it');
+          else cb(null, candidates.length);
+        });
+      });
+    },
+  );
 }
 
 export function startServer(token: string): Promise<BrainServer> {
@@ -75,6 +128,43 @@ export function startServer(token: string): Promise<BrainServer> {
         // v1 always allows immediately. The request/response shape exists so v2
         // breakpoints can hold this response open and return a decision.
         res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+      });
+      return;
+    }
+
+    // Type a prompt into the tmux pane running the session's Claude Code.
+    if (req.method === 'POST' && url.pathname === '/api/prompt') {
+      if (!authorized(req, url)) {
+        res.writeHead(401).end();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        let body: { cwd?: string; text?: string } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          // handled below
+        }
+        const cwd = String(body.cwd ?? '');
+        const text = String(body.text ?? '')
+          .replace(/[\r\n]+/g, ' ')
+          .trim()
+          .slice(0, 4000);
+        if (!cwd || !text) {
+          res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"cwd and text required"}');
+          return;
+        }
+        sendPromptToTmux(cwd, text, (err, paneCount) => {
+          if (err) {
+            res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: err }));
+          } else {
+            res
+              .writeHead(200, { 'Content-Type': 'application/json' })
+              .end(JSON.stringify({ ok: true, panes: paneCount }));
+          }
+        });
       });
       return;
     }

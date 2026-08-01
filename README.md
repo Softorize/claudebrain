@@ -27,6 +27,10 @@ as a *"which session needs me?"* radar.
 - **Focus mode** — pick a single session from the top-left dropdown (or view
   all). When a background session needs your permission — or finishes a work
   stretch longer than 30s — a toast appears; click it to jump there.
+- **Prompt from the UI** — when focused on a session, a prompt bar at the
+  bottom types your message straight into that session's tmux pane (matched by
+  working directory; only panes running Claude Code, never a shell). Respond to
+  a waiting session without switching to the terminal.
 - **Per-session activity feed** — collapsible groups per session, newest-active on
   top; hover a row to flash its path in the graph, click to jump to the node.
 - **Inspect & copy everything** — click any node for its history: full bash
