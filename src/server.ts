@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -27,8 +28,56 @@ const IMAGE_MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+// content-type → file extension for prompt-bar image uploads
+const UPLOAD_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
+
 export interface BrainServer {
   close(): void;
+}
+
+const REPLY_TAIL_BYTES = 512 * 1024;
+const MAX_REPLY_CHARS = 4000;
+
+/** Last assistant text message in a Claude Code transcript (reads the tail only). */
+function readAssistantReply(transcriptPath: string, cb: (reply: string) => void): void {
+  fs.stat(transcriptPath, (err, st) => {
+    if (err || !st.isFile()) {
+      cb('');
+      return;
+    }
+    const start = Math.max(0, st.size - REPLY_TAIL_BYTES);
+    const stream = fs.createReadStream(transcriptPath, { start, encoding: 'utf8' });
+    let raw = '';
+    stream.on('data', (chunk) => (raw += chunk));
+    stream.on('error', () => cb(''));
+    stream.on('end', () => {
+      const lines = raw.split('\n').filter(Boolean);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const entry = JSON.parse(lines[i]);
+          const content = entry?.message?.content;
+          if (entry?.type === 'assistant' && Array.isArray(content)) {
+            const texts = content
+              .filter((c: { type?: string; text?: unknown }) => c?.type === 'text' && typeof c.text === 'string')
+              .map((c: { text: string }) => c.text);
+            if (texts.length > 0) {
+              const reply = texts.join('\n\n').trim();
+              cb(reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) + '…' : reply);
+              return;
+            }
+          }
+        } catch {
+          // first line may be cut by the tail window — skip
+        }
+      }
+      cb('');
+    });
+  });
 }
 
 // Resolve tmux without relying on PATH — launchd services (brew services)
@@ -203,11 +252,22 @@ export function startServer(token: string): Promise<BrainServer> {
           panesBySid.set(ev.sid, pane);
           ev.data.pane = pane; // persisted, so the mapping survives restarts
         }
-        store.append(ev);
-        broadcast({ type: 'event', event: ev });
-        // v1 always allows immediately. The request/response shape exists so v2
-        // breakpoints can hold this response open and return a decision.
-        res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+        const finish = () => {
+          store.append(ev);
+          broadcast({ type: 'event', event: ev });
+          // v1 always allows immediately. The request/response shape exists so
+          // v2 breakpoints can hold this response open and return a decision.
+          res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+        };
+        // on turn end, attach Claude's final message so the UI can show the ask
+        if (eventName === 'Stop' && typeof payload.transcript_path === 'string') {
+          readAssistantReply(payload.transcript_path, (reply) => {
+            if (reply) ev.data.reply = reply;
+            finish();
+          });
+        } else {
+          finish();
+        }
       });
       return;
     }
@@ -250,6 +310,46 @@ export function startServer(token: string): Promise<BrainServer> {
               .writeHead(200, { 'Content-Type': 'application/json' })
               .end(JSON.stringify({ ok: true, panes: paneCount }));
           }
+        });
+      });
+      return;
+    }
+
+    // Receive an image dropped/pasted into the prompt bar; store it on disk so
+    // its absolute path can be included in a prompt for Claude Code to read.
+    if (req.method === 'POST' && url.pathname === '/api/upload') {
+      if (!authorized(req, url)) {
+        res.writeHead(401).end();
+        return;
+      }
+      const ext = UPLOAD_EXT[String(req.headers['content-type'] ?? '')];
+      if (!ext) {
+        res.writeHead(415, { 'Content-Type': 'application/json' }).end('{"error":"only image uploads"}');
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > MAX_BODY) req.destroy();
+        else chunks.push(c);
+      });
+      req.on('end', () => {
+        const dir = path.join(os.tmpdir(), 'claudebrain-drops');
+        const name = `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+        const file = path.join(dir, name);
+        fs.mkdir(dir, { recursive: true }, (err) => {
+          if (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' }).end('{"error":"could not create upload dir"}');
+            return;
+          }
+          fs.writeFile(file, Buffer.concat(chunks), (err2) => {
+            if (err2) {
+              res.writeHead(500, { 'Content-Type': 'application/json' }).end('{"error":"could not save upload"}');
+            } else {
+              res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ path: file }));
+            }
+          });
         });
       });
       return;

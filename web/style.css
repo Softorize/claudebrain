@@ -355,6 +355,52 @@ html, body {
 #popover li:hover .dl { background: #f8717114; }
 #popover li:hover .al { background: #4ade8014; }
 
+#reply-panel {
+  position: fixed;
+  bottom: 66px; /* sits right above the prompt bar */
+  left: 50%;
+  transform: translateX(calc(-50% - 160px));
+  z-index: 3;
+  width: min(620px, 60vw);
+  background: #0a0d14f0;
+  border: 1px solid #2c3a52;
+  border-left: 3px solid #fbbf24;
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 30px #000a;
+}
+#reply-panel .rp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px 4px 12px;
+}
+#reply-panel .rp-title {
+  color: #fbbf24;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+#reply-panel .rp-x {
+  background: none;
+  border: none;
+  color: #5b6b80;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+#reply-panel .rp-x:hover { color: #d7e2ef; }
+#reply-panel .rp-body {
+  padding: 0 12px 10px;
+  color: #c8d3e0;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
 #prompt-bar {
   position: fixed;
   bottom: 16px;
@@ -362,6 +408,7 @@ html, body {
   transform: translateX(calc(-50% - 160px)); /* visually centered left of the feed */
   z-index: 3;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   width: min(620px, 60vw);
@@ -373,6 +420,40 @@ html, body {
   box-shadow: 0 8px 30px #000a;
 }
 #prompt-bar:focus-within { border-color: #38bdf8; }
+#prompt-bar.dropping { border-color: #38bdf8; background: #0e1622f0; }
+#prompt-chips {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#prompt-chips .chip {
+  position: relative;
+  border: 1px solid #223049;
+  border-radius: 6px;
+  overflow: hidden;
+  flex: none;
+}
+#prompt-chips .chip img {
+  display: block;
+  height: 44px;
+  max-width: 120px;
+  object-fit: cover;
+}
+#prompt-chips .chip button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #0a0d14d0;
+  border: none;
+  border-radius: 4px;
+  color: #7a8ba0;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 3px;
+  cursor: pointer;
+}
+#prompt-chips .chip button:hover { color: #f87171; }
 #prompt-input {
   flex: 1;
   background: none;

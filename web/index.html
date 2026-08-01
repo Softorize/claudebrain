@@ -26,7 +26,12 @@
     <div id="pin-header">⌗ pinned</div>
     <ul id="pins"></ul>
   </div>
+  <div id="reply-panel" hidden>
+    <div class="rp-head"><span class="rp-title"></span><button class="rp-x" title="dismiss">✕</button></div>
+    <div class="rp-body"></div>
+  </div>
   <div id="prompt-bar" hidden>
+    <div id="prompt-chips" hidden></div>
     <input id="prompt-input" type="text" autocomplete="off" spellcheck="false" />
     <select id="prompt-target" title="which session receives this prompt" hidden></select>
     <button id="prompt-send" title="send prompt to the session's terminal">↵ send</button>

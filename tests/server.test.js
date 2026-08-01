@@ -71,6 +71,36 @@ test('the page requires the token; static assets are served', async () => {
   assert.equal((await fetch(`${base}/health`)).status, 200);
 });
 
+test('upload: stores an image and returns its path; rejects non-images and bad tokens', async () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.equal(
+    (await fetch(`${base}/api/upload`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: png }))
+      .status,
+    401,
+  );
+  assert.equal(
+    (
+      await fetch(`${base}/api/upload?token=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'nope',
+      })
+    ).status,
+    415,
+  );
+
+  const res = await fetch(`${base}/api/upload?token=${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: png,
+  });
+  assert.equal(res.status, 200);
+  const { path: saved } = await res.json();
+  assert.ok(path.isAbsolute(saved) && saved.endsWith('.png'));
+  assert.deepEqual(fs.readFileSync(saved), png, 'bytes round-trip to disk');
+  fs.rmSync(saved);
+});
+
 test('websocket: wrong token rejected, right token gets a replay', async () => {
   await new Promise((resolve, reject) => {
     const bad = new WebSocket(`ws://127.0.0.1:${PORT}/ws?token=nope`);

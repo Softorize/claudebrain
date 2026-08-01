@@ -25,6 +25,7 @@ interface BrainEvent {
     input?: Record<string, unknown>;
     isError?: boolean;
     output?: string;
+    reply?: string;
     prompt?: string;
     message?: string;
     source?: string;
@@ -73,6 +74,8 @@ interface SessionInfo {
   state: SessionState;
   lastTs: number;
   workStartTs: number; // when the current work stretch began (last prompt)
+  lastReply?: string; // Claude's final message from the last finished turn
+  replyDismissed?: boolean;
   activeSkills: string[];
   runningAgents: string[];
   agentCounter: number;
@@ -269,6 +272,7 @@ async function removeSession(sid: string): Promise<void> {
 
 // ---- prompt bar: type into the focused session's tmux pane from the UI
 const promptBar = document.getElementById('prompt-bar') as HTMLDivElement;
+const promptChips = document.getElementById('prompt-chips') as HTMLDivElement;
 const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
 const promptTarget = document.getElementById('prompt-target') as HTMLSelectElement;
 const promptSend = document.getElementById('prompt-send') as HTMLButtonElement;
@@ -277,6 +281,8 @@ let promptStatusTimer = 0;
 
 // unsent text is a per-session draft — switching sessions keeps drafts apart
 const promptDrafts = new Map<string, string>();
+// screenshots dropped/pasted into the bar, already uploaded → absolute paths
+const promptImages = new Map<string, string[]>();
 let promptDraftKey = '#all';
 
 function swapPromptDraft(): void {
@@ -285,10 +291,83 @@ function swapPromptDraft(): void {
   promptDrafts.set(promptDraftKey, promptInput.value);
   promptInput.value = promptDrafts.get(key) ?? '';
   promptDraftKey = key;
+  renderPromptChips();
+}
+
+function renderPromptChips(): void {
+  const paths = promptImages.get(promptDraftKey) ?? [];
+  promptChips.innerHTML = '';
+  promptChips.hidden = paths.length === 0;
+  for (const p of paths) {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    const img = document.createElement('img');
+    img.src = `/api/file?path=${encodeURIComponent(p)}&token=${token}`;
+    img.alt = '';
+    const x = document.createElement('button');
+    x.title = 'remove screenshot';
+    x.textContent = '✕';
+    x.addEventListener('click', () => {
+      promptImages.set(
+        promptDraftKey,
+        (promptImages.get(promptDraftKey) ?? []).filter((q) => q !== p),
+      );
+      renderPromptChips();
+    });
+    chip.append(img, x);
+    promptChips.append(chip);
+  }
+}
+
+async function attachImage(blob: Blob): Promise<void> {
+  setPromptStatus('uploading…', true);
+  try {
+    const res = await fetch(`/api/upload?token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type },
+      body: blob,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.path) {
+      const paths = promptImages.get(promptDraftKey) ?? [];
+      paths.push(data.path);
+      promptImages.set(promptDraftKey, paths);
+      renderPromptChips();
+      setPromptStatus('✓ screenshot attached', true);
+    } else {
+      setPromptStatus(data.error ?? `upload failed (${res.status})`, false);
+    }
+  } catch {
+    setPromptStatus('viewer server unreachable', false);
+  }
+  promptInput.focus();
+}
+
+// ---- reply panel: Claude's final message / ask for the focused session
+const replyPanel = document.getElementById('reply-panel') as HTMLDivElement;
+const replyTitle = replyPanel.querySelector('.rp-title') as HTMLElement;
+const replyBody = replyPanel.querySelector('.rp-body') as HTMLElement;
+(replyPanel.querySelector('.rp-x') as HTMLElement).addEventListener('click', () => {
+  const s = focusSid ? sessions.get(focusSid) : null;
+  if (s) s.replyDismissed = true;
+  replyPanel.hidden = true;
+});
+
+function updateReplyPanel(): void {
+  const s = focusSid ? sessions.get(focusSid) : null;
+  const show =
+    !!s && !!s.lastReply && !s.replyDismissed && (s.state === 'waiting' || s.state === 'attention');
+  replyPanel.hidden = !show;
+  if (show && s) {
+    replyTitle.textContent =
+      s.state === 'attention' ? `${s.label} — needs your permission` : `${s.label} — waiting for you`;
+    replyBody.textContent = s.lastReply!;
+  }
 }
 
 function updatePromptBar(): void {
   swapPromptDraft();
+  updateReplyPanel();
   const live = [...sessions.values()].filter((s) => s.state !== 'ended').sort((a, b) => b.lastTs - a.lastTs);
   if (focusSid && sessions.has(focusSid)) {
     // focused: the target is implicit
@@ -318,7 +397,9 @@ function setPromptStatus(text: string, ok: boolean): void {
 
 async function sendPrompt(): Promise<void> {
   const s = focusSid ? sessions.get(focusSid) : sessions.get(promptTarget.value);
-  const text = promptInput.value.trim();
+  const images = promptImages.get(promptDraftKey) ?? [];
+  // attached screenshots ride along as absolute paths Claude Code can read
+  const text = [promptInput.value.trim(), ...images].filter(Boolean).join(' ');
   if (!s || !text) return;
   promptSend.disabled = true;
   try {
@@ -331,6 +412,8 @@ async function sendPrompt(): Promise<void> {
     if (res.ok) {
       promptInput.value = '';
       promptDrafts.set(promptDraftKey, '');
+      promptImages.set(promptDraftKey, []);
+      renderPromptChips();
       setPromptStatus('✓ sent', true);
     } else {
       setPromptStatus(data.error ?? `failed (${res.status})`, false);
@@ -347,6 +430,29 @@ promptSend.addEventListener('click', () => void sendPrompt());
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') void sendPrompt();
   e.stopPropagation(); // keep Escape/shortcuts from closing popovers while typing
+});
+
+// drop a screenshot anywhere on the bar, or paste one into the input
+promptBar.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  promptBar.classList.add('dropping');
+});
+promptBar.addEventListener('dragleave', () => promptBar.classList.remove('dropping'));
+promptBar.addEventListener('drop', (e) => {
+  e.preventDefault();
+  promptBar.classList.remove('dropping');
+  for (const f of e.dataTransfer?.files ?? []) {
+    if (f.type.startsWith('image/')) void attachImage(f);
+  }
+});
+promptInput.addEventListener('paste', (e) => {
+  const images = [...(e.clipboardData?.items ?? [])]
+    .filter((it) => it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter((f): f is File => f !== null);
+  if (images.length === 0) return;
+  e.preventDefault();
+  for (const f of images) void attachImage(f);
 });
 
 /** Toast for a background session that needs the user; click jumps to it. */
@@ -900,6 +1006,7 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
     case 'UserPromptSubmit': {
       s.state = 'active';
       s.workStartTs = ev.t;
+      s.replyDismissed = true; // the ask has been answered
       if (animate) s.ripples.push(performance.now());
       touch(sessionNode, ev, `“${ev.data.prompt ?? ''}”`);
       break;
@@ -1033,6 +1140,8 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
       if (/permission|waiting|input|approve/i.test(msg)) {
         if (animate && s.state !== 'attention') showToast(s, 'attention');
         s.state = 'attention';
+        s.lastReply = msg;
+        s.replyDismissed = false;
       }
       break;
     }
@@ -1043,6 +1152,10 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
         showToast(s, 'waiting');
       }
       s.state = 'waiting';
+      if (ev.data.reply) {
+        s.lastReply = ev.data.reply;
+        s.replyDismissed = false;
+      }
       for (const id of s.activeSkills) {
         const n = nodeById.get(id);
         if (n) n.active = false;
