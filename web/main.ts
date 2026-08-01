@@ -1152,10 +1152,6 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
         showToast(s, 'waiting');
       }
       s.state = 'waiting';
-      if (ev.data.reply) {
-        s.lastReply = ev.data.reply;
-        s.replyDismissed = false;
-      }
       for (const id of s.activeSkills) {
         const n = nodeById.get(id);
         if (n) n.active = false;
@@ -1174,6 +1170,16 @@ function applyGraph(ev: BrainEvent, animate: boolean): void {
       if (id) {
         const n = nodeById.get(id);
         if (n) n.active = false;
+      }
+      break;
+    }
+
+    case 'Reply': {
+      // Claude's final message for the last turn, extracted server-side
+      if (ev.data.reply && (s.state === 'waiting' || s.state === 'attention')) {
+        s.lastReply = ev.data.reply;
+        s.replyDismissed = false;
+        if (animate) updateReplyPanel();
       }
       break;
     }

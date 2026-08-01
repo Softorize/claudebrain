@@ -40,10 +40,25 @@ export interface BrainServer {
   close(): void;
 }
 
-const REPLY_TAIL_BYTES = 512 * 1024;
+const REPLY_TAIL_BYTES = 4 * 1024 * 1024; // image-bearing entries are megabytes
 const MAX_REPLY_CHARS = 4000;
+const REPLY_RETRY_MS = 1500; // the final entry can flush after the Stop hook fires
 
-/** Last assistant text message in a Claude Code transcript (reads the tail only). */
+function isRealUserPrompt(entry: { type?: string; isSidechain?: boolean; message?: { content?: unknown } }): boolean {
+  if (entry?.type !== 'user' || entry?.isSidechain) return false;
+  const content = entry.message?.content;
+  if (typeof content === 'string') return true;
+  if (!Array.isArray(content)) return false;
+  // tool results also arrive as user entries — those don't start a turn
+  return content.some((c) => c?.type === 'text') && !content.some((c) => c?.type === 'tool_result');
+}
+
+/**
+ * Claude's final message of the CURRENT turn: the last assistant text written
+ * after the last real user prompt. Anchoring to the prompt prevents showing a
+ * stale mid-turn message when the final entry hasn't flushed yet; the caller
+ * retries once in that case.
+ */
 function readAssistantReply(transcriptPath: string, cb: (reply: string) => void): void {
   fs.stat(transcriptPath, (err, st) => {
     if (err || !st.isFile()) {
@@ -56,26 +71,37 @@ function readAssistantReply(transcriptPath: string, cb: (reply: string) => void)
     stream.on('data', (chunk) => (raw += chunk));
     stream.on('error', () => cb(''));
     stream.on('end', () => {
-      const lines = raw.split('\n').filter(Boolean);
-      for (let i = lines.length - 1; i >= 0; i--) {
+      const entries: Array<Record<string, never>> = [];
+      for (const line of raw.split('\n')) {
+        if (!line) continue;
         try {
-          const entry = JSON.parse(lines[i]);
-          const content = entry?.message?.content;
-          if (entry?.type === 'assistant' && Array.isArray(content)) {
-            const texts = content
-              .filter((c: { type?: string; text?: unknown }) => c?.type === 'text' && typeof c.text === 'string')
-              .map((c: { text: string }) => c.text);
-            if (texts.length > 0) {
-              const reply = texts.join('\n\n').trim();
-              cb(reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) + '…' : reply);
-              return;
-            }
-          }
+          entries.push(JSON.parse(line));
         } catch {
           // first line may be cut by the tail window — skip
         }
       }
-      cb('');
+      let lastPromptIdx = -1;
+      for (let i = entries.length - 1; i >= 0; i--) {
+        if (isRealUserPrompt(entries[i])) {
+          lastPromptIdx = i;
+          break;
+        }
+      }
+      for (let i = entries.length - 1; i > lastPromptIdx; i--) {
+        const entry = entries[i] as { type?: string; isSidechain?: boolean; message?: { content?: unknown } };
+        const content = entry?.message?.content;
+        if (entry?.type === 'assistant' && !entry?.isSidechain && Array.isArray(content)) {
+          const texts = content
+            .filter((c: { type?: string; text?: unknown }) => c?.type === 'text' && typeof c.text === 'string')
+            .map((c: { text: string }) => c.text);
+          if (texts.length > 0) {
+            const reply = texts.join('\n\n').trim();
+            cb(reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) + '…' : reply);
+            return;
+          }
+        }
+      }
+      cb(''); // no assistant text after the last prompt (yet)
     });
   });
 }
@@ -252,21 +278,43 @@ export function startServer(token: string): Promise<BrainServer> {
           panesBySid.set(ev.sid, pane);
           ev.data.pane = pane; // persisted, so the mapping survives restarts
         }
-        const finish = () => {
-          store.append(ev);
-          broadcast({ type: 'event', event: ev });
-          // v1 always allows immediately. The request/response shape exists so
-          // v2 breakpoints can hold this response open and return a decision.
-          res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
-        };
-        // on turn end, attach Claude's final message so the UI can show the ask
+        store.append(ev);
+        broadcast({ type: 'event', event: ev });
+        // v1 always allows immediately. The request/response shape exists so
+        // v2 breakpoints can hold this response open and return a decision.
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+
+        // On turn end, extract Claude's final message asynchronously (the
+        // transcript may flush after the hook fires) and emit it as its own
+        // event so the UI can show what the session is asking for.
         if (eventName === 'Stop' && typeof payload.transcript_path === 'string') {
-          readAssistantReply(payload.transcript_path, (reply) => {
-            if (reply) ev.data.reply = reply;
-            finish();
-          });
-        } else {
-          finish();
+          const transcript = String(payload.transcript_path);
+          const emitReply = (reply: string) => {
+            const replyEv: BrainEvent = {
+              t: Date.now(),
+              sid: ev.sid,
+              event: 'Reply',
+              cwd: ev.cwd,
+              data: { reply },
+            };
+            store.append(replyEv);
+            broadcast({ type: 'event', event: replyEv });
+          };
+          // two passes: the final entry often flushes shortly AFTER the Stop
+          // hook, and a single early read can catch an older mid-turn message
+          let lastEmitted = '';
+          const attempt = (delay: number) => {
+            setTimeout(() => {
+              readAssistantReply(transcript, (reply) => {
+                if (reply && reply !== lastEmitted) {
+                  lastEmitted = reply;
+                  emitReply(reply);
+                }
+              });
+            }, delay);
+          };
+          attempt(500);
+          attempt(REPLY_RETRY_MS + 1000);
         }
       });
       return;
