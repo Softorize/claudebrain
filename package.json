@@ -1,0 +1,40 @@
+{
+  "name": "claudebrain",
+  "version": "0.1.0",
+  "description": "Live synapse-graph visualizer for Claude Code — watch every session, skill, tool call, and file edit light up in real time",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Softorize/claudebrain.git"
+  },
+  "homepage": "https://github.com/Softorize/claudebrain#readme",
+  "bin": {
+    "claudebrain": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && esbuild web/main.ts --bundle --format=iife --outfile=dist/web/app.js && cp web/index.html web/style.css dist/web/",
+    "test": "node --test tests/",
+    "start": "node dist/cli.js start",
+    "dev": "npm run build && node dist/cli.js start"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "d3-force": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test
+
+      - name: Pack npm tarball (includes prebuilt dist/)
+        id: pack
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$TARBALL" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ${{ steps.pack.outputs.tarball }}
+
+      - name: Update Homebrew formula in Softorize/homebrew-tap
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: Softorize/homebrew-tap
+          event-type: update-claudebrain
+          client-payload: |
+            {
+              "version": "${{ steps.pack.outputs.version }}",
+              "sha256": "${{ steps.pack.outputs.sha256 }}"
+            }
+
+      - name: Note when tap update was skipped
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN == '' }}
+        run: |
+          echo "::warning::HOMEBREW_TAP_TOKEN secret is not set — the Homebrew formula was NOT updated."
+          echo "::warning::Add it (a PAT with repo access to Softorize/homebrew-tap), or dispatch manually:"
+          echo "::warning::gh api repos/Softorize/homebrew-tap/dispatches -f event_type=update-claudebrain -F 'client_payload[version]=${{ steps.pack.outputs.version }}' -F 'client_payload[sha256]=${{ steps.pack.outputs.sha256 }}'"
