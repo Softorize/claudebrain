@@ -31,6 +31,15 @@ export interface BrainServer {
   close(): void;
 }
 
+// Resolve tmux without relying on PATH — launchd services (brew services)
+// run with a minimal PATH that lacks /opt/homebrew/bin.
+const TMUX_CANDIDATES = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'];
+let tmuxBin: string | undefined;
+function tmuxPath(): string {
+  tmuxBin ??= TMUX_CANDIDATES.find((p) => fs.existsSync(p)) ?? 'tmux';
+  return tmuxBin;
+}
+
 /**
  * Does a tmux pane_current_command look like Claude Code? The CLI sets its
  * process title to its bare version ("2.1.218"), so a pure version string is
@@ -48,7 +57,7 @@ function looksLikeClaudePane(cmd: string): boolean {
  */
 function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, panes?: number) => void): void {
   execFile(
-    'tmux',
+    tmuxPath(),
     ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_current_command}\t#{pane_current_path}'],
     (err, stdout) => {
       if (err) {
@@ -75,12 +84,12 @@ function sendPromptToTmux(cwd: string, text: string, cb: (err: string | null, pa
         return;
       }
       const pane = candidates[0];
-      execFile('tmux', ['send-keys', '-t', pane.id, '-l', text], (err2) => {
+      execFile(tmuxPath(), ['send-keys', '-t', pane.id, '-l', text], (err2) => {
         if (err2) {
           cb('failed to type into the tmux pane');
           return;
         }
-        execFile('tmux', ['send-keys', '-t', pane.id, 'Enter'], (err3) => {
+        execFile(tmuxPath(), ['send-keys', '-t', pane.id, 'Enter'], (err3) => {
           if (err3) cb('typed the prompt but failed to submit it');
           else cb(null, candidates.length);
         });
