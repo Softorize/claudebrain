@@ -1394,6 +1394,7 @@ const imgPreviewImg = imgPreview.querySelector('img') as HTMLImageElement;
 const lightbox = document.getElementById('lightbox') as HTMLDivElement;
 const lightboxImg = lightbox.querySelector('img') as HTMLImageElement;
 let previewFor: GNode | null = null;
+let previewPending: GNode | null = null; // node the show-timer is armed for
 let previewShowTimer = 0;
 let previewHideTimer = 0;
 let overPreview = false;
@@ -1409,18 +1410,20 @@ function isImageNode(n: GNode | null): n is GNode {
 function updateImagePreview(cx: number, cy: number): void {
   if (isImageNode(hoverNode)) {
     clearTimeout(previewHideTimer);
-    if (previewFor !== hoverNode) {
-      clearTimeout(previewShowTimer);
-      const n = hoverNode;
-      previewShowTimer = window.setTimeout(() => {
-        previewFor = n;
-        imgPreviewImg.src = imageUrl(n);
-        imgPreview.hidden = false;
-        imgPreview.style.left = `${Math.min(cx + 16, window.innerWidth - 300)}px`;
-        imgPreview.style.top = `${Math.min(cy + 16, window.innerHeight - 260)}px`;
-      }, 180);
-    }
-  } else if (previewFor && !overPreview) {
+    if (previewFor === hoverNode || previewPending === hoverNode) return; // don't reset on jitter
+    clearTimeout(previewShowTimer);
+    const n = hoverNode;
+    previewPending = n;
+    previewShowTimer = window.setTimeout(() => {
+      previewPending = null;
+      previewFor = n;
+      imgPreviewImg.src = imageUrl(n);
+      imgPreview.hidden = false;
+      imgPreview.style.left = `${Math.min(cx + 16, window.innerWidth - 300)}px`;
+      imgPreview.style.top = `${Math.min(cy + 16, window.innerHeight - 260)}px`;
+    }, 150);
+  } else if ((previewFor || previewPending) && !overPreview) {
+    previewPending = null;
     clearTimeout(previewShowTimer);
     clearTimeout(previewHideTimer);
     previewHideTimer = window.setTimeout(() => {
@@ -1431,6 +1434,15 @@ function updateImagePreview(cx: number, cy: number): void {
     }, 250);
   }
 }
+
+imgPreviewImg.addEventListener('error', () => {
+  if (!imgPreview.hidden) {
+    (imgPreview.querySelector('.cap') as HTMLElement).textContent = 'cannot load file (moved or deleted?)';
+  }
+});
+imgPreviewImg.addEventListener('load', () => {
+  (imgPreview.querySelector('.cap') as HTMLElement).textContent = 'click to enlarge';
+});
 
 imgPreview.addEventListener('mouseenter', () => (overPreview = true));
 imgPreview.addEventListener('mouseleave', () => {
