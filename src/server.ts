@@ -191,7 +191,15 @@ function createSessionInTmux(cwd: string, cb: (err: string | null) => void): voi
         cb('no tmux sessions exist to open a window in');
         return;
       }
-      const cmd = process.env.CLAUDEBRAIN_NEW_CMD ?? "exec claude";
+      // The pane inherits the tmux CLIENT's env — ours is launchd's bare one,
+      // and login shells don't read .zshrc, so resolve claude absolutely.
+      const claudeBin =
+        [
+          path.join(os.homedir(), '.local', 'bin', 'claude'),
+          '/opt/homebrew/bin/claude',
+          '/usr/local/bin/claude',
+        ].find((p) => fs.existsSync(p)) ?? 'claude';
+      const cmd = process.env.CLAUDEBRAIN_NEW_CMD ?? `exec '${claudeBin}'`;
       execFile(
         tmuxPath(),
         [...sock, 'new-window', '-t', `${rows[0].name}:`, '-c', cwd, `/bin/zsh -lc '${cmd}'`],
