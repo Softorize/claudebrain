@@ -201,6 +201,31 @@ function setFocus(sid: string | null): void {
 
 picker.addEventListener('change', () => setFocus(picker.value === 'all' ? null : picker.value));
 
+// ---- start a new Claude Code session from the UI
+document.getElementById('new-session')!.addEventListener('click', () => {
+  const focused = focusSid ? sessions.get(focusSid) : null;
+  const recent = [...sessions.values()].sort((a, b) => b.lastTs - a.lastTs)[0];
+  const suggestion = focused?.cwd || recent?.cwd || '~/';
+  const cwd = window.prompt('Start a new Claude Code session in folder:', suggestion)?.trim();
+  if (!cwd) return;
+  void (async () => {
+    try {
+      const res = await fetch(`/api/new-session?token=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        window.alert(`Could not start session: ${data.error ?? res.status}`);
+      }
+      // on success the session announces itself via its own SessionStart hook
+    } catch {
+      window.alert('Could not reach the claudebrain server.');
+    }
+  })();
+});
+
 let pickerSig = '';
 function updatePicker(): void {
   const list = [...sessions.values()].sort((a, b) => b.lastTs - a.lastTs);

@@ -161,6 +161,47 @@ function looksLikeClaudePane(cmd: string): boolean {
 }
 
 /**
+ * Open a new tmux window in the user's most recently active tmux session and
+ * start Claude Code in it. Runs via a login shell so PATH resolves the claude
+ * binary even though the viewer service itself runs under launchd's bare env.
+ */
+function createSessionInTmux(cwd: string, cb: (err: string | null) => void): void {
+  const sock = findTmuxSocket();
+  execFile(
+    tmuxPath(),
+    [...sock, 'list-sessions', '-F', '#{session_name}|#{session_attached}|#{session_last_attached}'],
+    (err, stdout) => {
+      if (err) {
+        cb('tmux is not available or no tmux server is running');
+        return;
+      }
+      const rows = stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const parts = line.split('|');
+          return {
+            name: parts.slice(0, -2).join('|'),
+            attached: Number(parts[parts.length - 2]) > 0,
+            lastAttached: Number(parts[parts.length - 1]) || 0,
+          };
+        })
+        .sort((a, b) => Number(b.attached) - Number(a.attached) || b.lastAttached - a.lastAttached);
+      if (rows.length === 0) {
+        cb('no tmux sessions exist to open a window in');
+        return;
+      }
+      const cmd = process.env.CLAUDEBRAIN_NEW_CMD ?? "exec claude";
+      execFile(
+        tmuxPath(),
+        [...sock, 'new-window', '-t', `${rows[0].name}:`, '-c', cwd, `/bin/zsh -lc '${cmd}'`],
+        (err2) => cb(err2 ? 'failed to open a new tmux window' : null),
+      );
+    },
+  );
+}
+
+/**
  * Type a prompt into the tmux pane hosting a Claude Code session.
  *
  * Preferred routing: the exact pane id the session's own hooks reported via
@@ -397,6 +438,43 @@ export function startServer(token: string): Promise<BrainServer> {
             } else {
               res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ path: file }));
             }
+          });
+        });
+      });
+      return;
+    }
+
+    // Start a fresh Claude Code session in a new tmux window.
+    if (req.method === 'POST' && url.pathname === '/api/new-session') {
+      if (!authorized(req, url)) {
+        res.writeHead(401).end();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        let body: { cwd?: string } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          // handled below
+        }
+        let cwd = String(body.cwd ?? '').trim();
+        if (cwd.startsWith('~')) cwd = path.join(os.homedir(), cwd.slice(1));
+        const fail = (code: number, msg: string) =>
+          res.writeHead(code, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: msg }));
+        if (!cwd || !path.isAbsolute(cwd)) {
+          fail(400, 'an absolute folder path is required');
+          return;
+        }
+        fs.stat(cwd, (err, st) => {
+          if (err || !st.isDirectory()) {
+            fail(400, 'that folder does not exist');
+            return;
+          }
+          createSessionInTmux(cwd, (err2) => {
+            if (err2) fail(404, err2);
+            else res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"ok":true}');
           });
         });
       });

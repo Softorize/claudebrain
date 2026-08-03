@@ -115,6 +115,7 @@ brew uninstall claudebrain    # if installed via brew
 | Click the preview | full-size lightbox; Esc or click closes |
 | ☆ on a popover line | pin the command to a persistent panel on the left (copy/unpin there) |
 | Session dropdown (top left) | focus one session; toasts announce background sessions needing you |
+| ＋ new (top left) | start a fresh Claude Code session in a new tmux window in any folder |
 | ▸ out on a popover line | expand the captured tool output inline |
 
 ## How it works

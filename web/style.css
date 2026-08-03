@@ -46,6 +46,19 @@ html, body {
 }
 #session-picker:hover { border-color: #38bdf8; }
 
+#new-session {
+  pointer-events: auto;
+  background: #0d1119;
+  color: #7a8ba0;
+  border: 1px solid #223049;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+#new-session:hover { color: #4ade80; border-color: #4ade80; }
+
 #toasts {
   position: fixed;
   top: 12px;
