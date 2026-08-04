@@ -24,7 +24,8 @@ app.whenReady().then(async () => {
     webPreferences: { offscreen: true },
   });
   win.webContents.setZoomFactor(1);
-  await win.loadFile(htmlPath);
+  if (/^https?:\/\//.test(htmlPath)) await win.loadURL(htmlPath);
+  else await win.loadFile(htmlPath);
   // let canvas drawing / fonts / filters settle
   await new Promise((r) => setTimeout(r, 800));
   const image = await win.webContents.capturePage({
