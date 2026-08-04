@@ -1,7 +1,7 @@
 {
   "name": "claudebrain-mac",
   "productName": "ClaudeBrain",
-  "version": "0.4.4",
+  "version": "0.4.6",
   "private": true,
   "description": "ClaudeBrain macOS app — live synapse-graph visualizer for Claude Code",
   "author": "Softorize",
