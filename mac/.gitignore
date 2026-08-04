@@ -1,0 +1,8 @@
+node_modules/
+dist/
+engine/
+build/icon.iconset/
+*.p12
+*.key
+*.certSigningRequest
+certs/

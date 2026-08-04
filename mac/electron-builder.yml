@@ -1,0 +1,78 @@
+# electron-builder configuration for ClaudeBrain (macOS).
+#
+# Mirrors wisparm's setup. Signing: electron-builder AUTO-DISCOVERS a
+# "Developer ID Application" identity from the keychain search list — on this
+# machine that is deliberately the same identity wisparm ships under (Venture
+# Deals, Co., 5DF7DJTJ9B), so even a local `npm run pack` comes out signed.
+# On a machine with no such identity the build falls back to unsigned. To
+# force an unsigned build here: CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack.
+# Notarization additionally needs the App Store Connect API key env vars
+# (APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER) and is skipped when
+# they are absent. See wisparm's wiki runbook mac-developer-id-signing.
+
+appId: com.softorize.claudebrain
+productName: ClaudeBrain
+copyright: Copyright (c) 2026 Softorize
+
+directories:
+  buildResources: build
+  output: dist
+
+# The app is main.js + the compiled claudebrain engine (synced into engine/
+# by scripts/sync-engine.sh). electron-builder adds production dependencies
+# (ws) on its own.
+files:
+  - main.js
+  - engine/**/*
+  - package.json
+  - "!**/.DS_Store"
+  - "!**/._*"
+  - "!**/*.map"
+
+# No asar: the engine is ESM loaded via dynamic import() from the CJS shell,
+# and plain files sidestep every asar/ESM-loader edge case. The whole app is
+# well under a megabyte, so the archive would buy nothing.
+asar: false
+
+mac:
+  category: public.app-category.developer-tools
+  # Universal (fat) binary so one dmg runs natively on Apple Silicon and Intel.
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  icon: build/icon.icns
+  # Hardened runtime is required for notarization; the entitlements re-open
+  # the JIT holes Electron's V8 needs.
+  hardenedRuntime: true
+  # Reads App Store Connect API key creds from the env; skipped automatically
+  # when absent, so unsigned local builds still work.
+  notarize: true
+  # spctl fails for not-yet-notarized apps; verification happens post-build.
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+
+dmg:
+  title: "ClaudeBrain ${version}"
+  # Drag-to-Applications layout matching the wisparm dmg: app left, arrow in
+  # the background art, /Applications symlink right, icons at y=215.
+  background: build/dmg-background.png
+  iconSize: 104
+  iconTextSize: 13
+  contents:
+    - x: 130
+      y: 215
+      type: file
+    - x: 410
+      y: 215
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+
+# zip target is here for future electron-updater use, same as wisparm.

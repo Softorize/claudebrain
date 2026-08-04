@@ -1,0 +1,23 @@
+{
+  "name": "claudebrain-mac",
+  "productName": "ClaudeBrain",
+  "version": "0.4.4",
+  "private": true,
+  "description": "ClaudeBrain macOS app — live synapse-graph visualizer for Claude Code",
+  "author": "Softorize",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "sync-engine": "bash scripts/sync-engine.sh",
+    "start": "npm run sync-engine && electron .",
+    "pack": "npm run sync-engine && electron-builder --dir",
+    "dist": "npm run sync-engine && electron-builder"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^42.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
