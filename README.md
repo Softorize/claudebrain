@@ -50,6 +50,10 @@ as a *"which session needs me?"* radar.
 
 ## Install
 
+### macOS app
+
+**[Download ClaudeBrain.dmg](https://github.com/softorize/claudebrain/releases/latest/download/ClaudeBrain.dmg)** — a signed & notarized universal app that bundles the server and viewer (no Node needed). Or visit the website: <https://softorize.github.io/claudebrain/>
+
 ### Homebrew (macOS)
 
 ```sh

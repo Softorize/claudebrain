@@ -1,0 +1,1089 @@
+<title>claudebrain — watch Claude Code think</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="claudebrain visualizes every Claude Code session as a living synapse graph — tool calls pulse across the wire in real time, amber halos mark sessions waiting for you. Free, open source, macOS." />
+<link rel="canonical" href="https://softorize.github.io/claudebrain/" />
+<meta name="theme-color" content="#07090e" />
+<link rel="icon" href="assets/icon-512.png" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="claudebrain — watch Claude Code think" />
+<meta property="og:description" content="A dark, ambient, real-time synapse-graph visualizer for Claude Code. Free & open source." />
+<meta property="og:url" content="https://softorize.github.io/claudebrain/" />
+<meta property="og:image" content="https://softorize.github.io/claudebrain/screenshot.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="claudebrain — watch Claude Code think" />
+<meta name="twitter:description" content="A dark, ambient, real-time synapse-graph visualizer for Claude Code. Free & open source." />
+<meta name="twitter:image" content="https://softorize.github.io/claudebrain/screenshot.png" />
+
+<style>
+  :root{
+    --bg-0:#05070d;
+    --bg-1:#080b14;
+    --bg-2:#0b0e1a;
+    --panel:rgba(14,18,32,0.58);
+    --panel-border:rgba(255,255,255,0.09);
+    --panel-border-hi:rgba(255,255,255,0.16);
+    --ink:#eef1f8;
+    --ink-dim:#aab2c5;
+    --ink-dimmer:#7a8299;
+    --cyan:#38bdf8;
+    --violet:#a78bfa;
+    --amber:#f59e0b;
+    --red:#f87171;
+    --focus:#7dd3fc;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{
+    margin:0;
+    padding:0;
+    background:var(--bg-0);
+    color:var(--ink);
+    overflow-x:hidden;
+    width:100%;
+  }
+  body{
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    min-height:100vh;
+    position:relative;
+  }
+  code, .mono, .kbd, pre{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+  }
+
+  a{ color:inherit; }
+  img{ max-width:100%; display:block; }
+
+  /* ---------- background canvas ---------- */
+  #bg{
+    position:fixed;
+    inset:0;
+    width:100%;
+    height:100%;
+    z-index:0;
+    display:block;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% -8%, #121a30 0%, transparent 60%),
+      radial-gradient(ellipse 70% 50% at 85% 15%, #1a1030 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+  }
+
+  .veil{
+    position:fixed;
+    inset:0;
+    z-index:1;
+    pointer-events:none;
+    background:
+      radial-gradient(ellipse 62% 48% at 50% 32%, rgba(5,7,13,0.5) 0%, rgba(5,7,13,0.22) 62%, rgba(5,7,13,0) 100%),
+      radial-gradient(ellipse 120% 70% at 50% 0%, rgba(5,7,13,0) 0%, rgba(5,7,13,0.35) 55%, rgba(5,7,13,0.72) 100%);
+  }
+
+  main, header, footer{ position:relative; z-index:2; }
+
+  .wrap{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 24px;
+  }
+
+  /* ---------- skip link ---------- */
+  .skip-link{
+    position:absolute;
+    left:16px; top:-60px;
+    background:var(--cyan);
+    color:#05070d;
+    padding:10px 16px;
+    border-radius:8px;
+    font-weight:600;
+    z-index:100;
+    transition:top .15s ease;
+  }
+  .skip-link:focus{ top:16px; }
+
+  /* ---------- focus states ---------- */
+  a:focus-visible,
+  button:focus-visible,
+  .btn:focus-visible{
+    outline:2px solid var(--focus);
+    outline-offset:3px;
+    border-radius:10px;
+  }
+
+  /* ---------- top nav ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:22px 0;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-weight:600;
+    font-size:16px;
+    letter-spacing:-0.01em;
+    text-decoration:none;
+  }
+  .brand img{
+    width:28px; height:28px;
+    border-radius:7px;
+  }
+  .topbar nav{
+    display:flex;
+    gap:28px;
+    align-items:center;
+  }
+  .nav-links{
+    display:flex;
+    gap:28px;
+    align-items:center;
+  }
+  .topbar nav a{
+    color:var(--ink-dim);
+    text-decoration:none;
+    font-size:14px;
+    font-weight:500;
+    transition:color .15s ease;
+  }
+  .topbar nav a:hover{ color:var(--ink); }
+  .topbar .gh-icon{ display:flex; align-items:center; gap:6px; }
+
+  /* ---------- hero ---------- */
+  .hero{
+    padding:64px 0 40px;
+    text-align:center;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .hero-icon{
+    width:84px; height:84px;
+    border-radius:20px;
+    margin-bottom:26px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08),
+      0 0 60px rgba(56,189,248,0.35),
+      0 0 120px rgba(167,139,250,0.18);
+  }
+  .hero h1{
+    margin:0;
+    font-size:clamp(40px, 7vw, 68px);
+    font-weight:700;
+    letter-spacing:-0.03em;
+    line-height:1.02;
+    background:linear-gradient(135deg, #ffffff 20%, #bcd6f5 55%, #93c9f5 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+  .hero .tagline{
+    margin:16px 0 0;
+    font-size:clamp(18px, 2.6vw, 24px);
+    font-weight:600;
+    color:var(--ink);
+    opacity:0.92;
+  }
+  .hero .tagline .accent{ color:var(--cyan); }
+  .hero .subline{
+    margin:14px 0 0;
+    max-width:560px;
+    font-size:16.5px;
+    color:var(--ink-dim);
+  }
+  .hero .ctas{
+    margin-top:26px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+  }
+  .btn-row{
+    display:flex;
+    align-items:center;
+    gap:18px;
+    flex-wrap:wrap;
+    justify-content:center;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
+    text-decoration:none;
+    font-weight:600;
+    font-size:16px;
+    padding:14px 26px;
+    border-radius:12px;
+    transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+    border:1px solid transparent;
+    cursor:pointer;
+  }
+  .btn-primary{
+    position:relative;
+    color:#04121c;
+    background:linear-gradient(135deg, #7bdcff 0%, #38bdf8 55%, #4fc7ff 100%);
+    box-shadow:0 8px 30px rgba(56,189,248,0.35), 0 0 0 1px rgba(255,255,255,0.15) inset;
+  }
+  .btn-primary:hover{
+    transform:translateY(-1px);
+    box-shadow:0 12px 36px rgba(56,189,248,0.48), 0 0 0 1px rgba(255,255,255,0.2) inset;
+  }
+  .btn-primary::after{
+    content:'';
+    position:absolute;
+    inset:-7px;
+    border-radius:18px;
+    z-index:-1;
+    pointer-events:none;
+    box-shadow:0 0 0 0 rgba(56,189,248,0);
+    animation:cta-pulse 3.2s ease-in-out infinite;
+  }
+  @keyframes cta-pulse{
+    0%, 100%{ box-shadow:0 0 0 0 rgba(56,189,248,0); }
+    50%{ box-shadow:0 0 22px 5px rgba(56,189,248,0.32); }
+  }
+  .btn-primary svg{ flex-shrink:0; }
+  .btn-secondary{
+    color:var(--ink);
+    background:rgba(255,255,255,0.04);
+    border-color:var(--panel-border);
+  }
+  .btn-secondary:hover{
+    background:rgba(255,255,255,0.08);
+    border-color:var(--panel-border-hi);
+  }
+  .microcopy{
+    font-size:13px;
+    color:var(--ink-dimmer);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing:0.01em;
+  }
+
+  /* ---------- screenshot ---------- */
+  .showcase{
+    padding:56px 0 20px;
+  }
+  .screenshot-frame{
+    position:relative;
+    max-width:980px;
+    margin:0 auto;
+    border-radius:16px;
+  }
+  .screenshot-glow{
+    position:absolute;
+    inset:-60px;
+    background:radial-gradient(ellipse 60% 55% at 50% 40%, rgba(56,189,248,0.28), transparent 65%),
+               radial-gradient(ellipse 40% 40% at 75% 70%, rgba(167,139,250,0.22), transparent 70%);
+    filter:blur(10px);
+    z-index:-1;
+  }
+  .window{
+    border-radius:14px;
+    overflow:hidden;
+    background:#05070d;
+    border:1px solid rgba(255,255,255,0.14);
+    box-shadow:
+      0 60px 130px -24px rgba(0,0,0,0.82),
+      0 18px 46px -14px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(255,255,255,0.05),
+      0 0 46px rgba(8,11,20,0.9),
+      0 1px 0 rgba(255,255,255,0.09) inset;
+  }
+  .titlebar{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:12px 14px;
+    background:linear-gradient(180deg, #14182a 0%, #0e1120 100%);
+    border-bottom:1px solid rgba(255,255,255,0.06);
+  }
+  .titlebar .dot{
+    width:11px; height:11px;
+    border-radius:50%;
+  }
+  .dot.red{ background:#ff5f57; }
+  .dot.yellow{ background:#febc2e; }
+  .dot.green{ background:#28c840; }
+  .titlebar .title{
+    flex:1;
+    text-align:center;
+    font-size:12px;
+    color:var(--ink-dimmer);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    margin-right:56px;
+  }
+  .window .shot-crop{
+    width:100%;
+    aspect-ratio:16/7.6;
+    overflow:hidden;
+    position:relative;
+  }
+  .window .shot-crop img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    object-position:top center;
+    display:block;
+  }
+
+  /* ---------- section headings ---------- */
+  .section-head{
+    text-align:center;
+    max-width:640px;
+    margin:0 auto 44px;
+  }
+  .eyebrow{
+    display:inline-block;
+    font-size:12.5px;
+    font-weight:700;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--cyan);
+    margin-bottom:12px;
+  }
+  .section-head h2{
+    margin:0;
+    font-size:clamp(26px, 4vw, 36px);
+    font-weight:700;
+    letter-spacing:-0.02em;
+    color:var(--ink);
+  }
+  .section-head p{
+    margin:12px 0 0;
+    color:var(--ink-dim);
+    font-size:16px;
+  }
+
+  section{ padding:76px 0; }
+
+  /* ---------- feature grid ---------- */
+  .feature-grid{
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:16px;
+  }
+  .feature-card{
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:16px;
+    padding:24px 22px;
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+    transition:border-color .18s ease, transform .18s ease, background .18s ease;
+  }
+  .feature-card:hover{
+    border-color:var(--panel-border-hi);
+    background:rgba(18,23,40,0.68);
+    transform:translateY(-2px);
+  }
+  .feature-card .icon-wrap{
+    width:42px; height:42px;
+    border-radius:11px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-bottom:16px;
+    background:rgba(56,189,248,0.10);
+    border:1px solid rgba(56,189,248,0.22);
+  }
+  .feature-card .icon-wrap svg{ width:21px; height:21px; }
+  .feature-card.violet .icon-wrap{ background:rgba(167,139,250,0.12); border-color:rgba(167,139,250,0.28); }
+  .feature-card.amber .icon-wrap{ background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); }
+  .feature-card.red .icon-wrap{ background:rgba(248,113,113,0.12); border-color:rgba(248,113,113,0.3); }
+  .feature-card h3{
+    margin:0 0 8px;
+    font-size:16.5px;
+    font-weight:650;
+    color:var(--ink);
+    letter-spacing:-0.01em;
+  }
+  .feature-card p{
+    margin:0;
+    font-size:14.5px;
+    color:var(--ink-dim);
+    line-height:1.55;
+  }
+  .badge-new{
+    display:inline-block;
+    margin-left:8px;
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    color:#04121c;
+    background:var(--cyan);
+    padding:2px 7px;
+    border-radius:5px;
+    vertical-align:middle;
+    transform:translateY(-1px);
+  }
+
+  /* ---------- how it works ---------- */
+  .steps{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:20px;
+    counter-reset:step;
+  }
+  .step{
+    position:relative;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:16px;
+    padding:30px 24px;
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+  }
+  .step .num{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:36px; height:36px;
+    border-radius:10px;
+    background:linear-gradient(135deg, rgba(56,189,248,0.22), rgba(167,139,250,0.16));
+    border:1px solid rgba(56,189,248,0.3);
+    color:var(--cyan);
+    font-weight:700;
+    font-size:15px;
+    margin-bottom:18px;
+  }
+  .step h3{
+    margin:0 0 8px;
+    font-size:17px;
+    font-weight:650;
+    color:var(--ink);
+  }
+  .step p{
+    margin:0;
+    font-size:14.5px;
+    color:var(--ink-dim);
+    line-height:1.6;
+  }
+  .step-connector{
+    display:none;
+  }
+
+  /* ---------- install block ---------- */
+  .install-block{
+    max-width:640px;
+    margin:40px auto 0;
+    text-align:center;
+  }
+  .install-block .label{
+    font-size:13px;
+    color:var(--ink-dimmer);
+    margin-bottom:14px;
+  }
+  .code-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    background:rgba(8,10,18,0.75);
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    padding:14px 16px 14px 20px;
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+  }
+  .code-row code{
+    font-size:13.5px;
+    color:#c9e8fc;
+    overflow-x:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+    scrollbar-width:thin;
+    flex:1;
+    text-align:left;
+  }
+  .copy-btn{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--panel-border);
+    color:var(--ink-dim);
+    font-size:12.5px;
+    font-weight:600;
+    padding:8px 12px;
+    border-radius:8px;
+    cursor:pointer;
+    transition:background .15s ease, color .15s ease;
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, ui-sans-serif, system-ui, sans-serif;
+  }
+  .copy-btn:hover{ background:rgba(255,255,255,0.12); color:var(--ink); }
+  .copy-btn svg{ width:14px; height:14px; }
+
+  /* ---------- final CTA ---------- */
+  .final-cta{
+    text-align:center;
+    padding:90px 0 100px;
+  }
+  .final-cta h2{
+    font-size:clamp(28px, 4.4vw, 42px);
+    font-weight:700;
+    letter-spacing:-0.02em;
+    margin:0 0 16px;
+  }
+  .final-cta p{
+    color:var(--ink-dim);
+    font-size:16px;
+    margin:0 0 32px;
+  }
+
+  /* ---------- footer ---------- */
+  footer{
+    border-top:1px solid var(--panel-border);
+    padding:32px 0 40px;
+  }
+  .footer-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:16px;
+  }
+  .footer-left{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    color:var(--ink-dimmer);
+    font-size:13.5px;
+  }
+  .footer-left img{ width:20px; height:20px; border-radius:5px; }
+  .footer-links{
+    display:flex;
+    gap:22px;
+  }
+  .footer-links a{
+    color:var(--ink-dim);
+    text-decoration:none;
+    font-size:13.5px;
+    transition:color .15s ease;
+  }
+  .footer-links a:hover{ color:var(--ink); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:980px){
+    .feature-grid{ grid-template-columns:repeat(2, 1fr); }
+    .steps{ grid-template-columns:1fr; }
+  }
+  @media (max-width:720px){
+    .topbar nav .nav-links{ display:none; }
+    .wrap{ padding:0 18px; }
+    .hero{ padding:44px 0 32px; }
+    .hero-icon{ width:68px; height:68px; margin-bottom:20px; }
+    section{ padding:56px 0; }
+    .feature-grid{ grid-template-columns:1fr; }
+    .btn{ width:100%; justify-content:center; }
+    .btn-row{ flex-direction:column; width:100%; }
+    .titlebar .title{ margin-right:0; }
+    .code-row{ flex-direction:column; align-items:stretch; }
+    .code-row code{ text-align:left; }
+    .copy-btn{ justify-content:center; }
+    .footer-row{ flex-direction:column; align-items:flex-start; }
+  }
+  @media (max-width:420px){
+    .hero .tagline{ font-size:19px; }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *, *::before, *::after{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+    .btn-primary::after{ display:none; }
+  }
+</style>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+
+<header>
+  <div class="wrap topbar">
+    <a class="brand" href="#main">
+      <img src="assets/icon.png" alt="" width="28" height="28" />
+      claudebrain
+    </a>
+    <nav>
+      <span class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#install">Install</a>
+      </span>
+      <a class="gh-icon" href="https://github.com/softorize/claudebrain" aria-label="View claudebrain on GitHub">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.02 3.26 9.28 7.78 10.79.57.1.78-.25.78-.56 0-.27-.01-1.16-.02-2.11-3.17.69-3.84-1.34-3.84-1.34-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.34.95.1-.74.4-1.25.72-1.53-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.17a10.9 10.9 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.34-5.21 5.62.41.36.77 1.06.77 2.14 0 1.54-.01 2.79-.01 3.17 0 .31.21.67.79.56A10.53 10.53 0 0 0 23.5 12.02C23.5 5.74 18.27.5 12 .5Z"/></svg>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <section class="hero">
+      <img class="hero-icon" src="assets/icon.png" alt="claudebrain app icon — a radial synapse graph glowing cyan, violet and amber on navy" width="84" height="84" />
+      <h1>claudebrain</h1>
+      <p class="tagline">watch <span class="accent">Claude Code</span> think</p>
+      <p class="subline">A live synapse-graph for every Claude Code session on your machine — tool calls pulse across the wire, halos tell you the moment one needs you.</p>
+
+      <div class="ctas">
+        <div class="btn-row">
+          <a class="btn btn-primary" href="https://github.com/softorize/claudebrain/releases/latest/download/ClaudeBrain.dmg">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13"/><path d="m6 11 6 6 6-6"/><path d="M4 20h16"/></svg>
+            Download for macOS
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/softorize/claudebrain">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.02 3.26 9.28 7.78 10.79.57.1.78-.25.78-.56 0-.27-.01-1.16-.02-2.11-3.17.69-3.84-1.34-3.84-1.34-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.34.95.1-.74.4-1.25.72-1.53-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.17a10.9 10.9 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.34-5.21 5.62.41.36.77 1.06.77 2.14 0 1.54-.01 2.79-.01 3.17 0 .31.21.67.79.56A10.53 10.53 0 0 0 23.5 12.02C23.5 5.74 18.27.5 12 .5Z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+        <p class="microcopy">v0.4.6 · Universal · signed &amp; notarized · free &amp; open source</p>
+      </div>
+    </section>
+
+    <section class="showcase" aria-label="Screenshot of the claudebrain app">
+      <div class="screenshot-frame">
+        <div class="screenshot-glow"></div>
+        <div class="window">
+          <div class="titlebar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="title">claudebrain</span>
+          </div>
+          <div class="shot-crop">
+            <img src="screenshot.png" alt="claudebrain window showing a glowing node graph of a Claude Code session named acme-web, file and tool nodes radiating outward, with an amber-outlined session waiting for input and a live activity log on the right listing reads, edits, greps, and a failed bash command in red" width="1600" height="1000" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="section-head">
+        <span class="eyebrow">Features</span>
+        <h2>Every session, one living graph</h2>
+        <p>claudebrain turns Claude Code's hooks into a real-time map of what's actually happening, across every terminal you have open.</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v6m0 0-5 4m5-4 5 4"/></svg>
+          </div>
+          <h3>Live activity graph</h3>
+          <p>Every concurrent session blooms on one canvas — a single always-on view of everything Claude Code is doing right now.</p>
+        </div>
+
+        <div class="feature-card red">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h5l2 6 4-12 2 6h5"/></svg>
+          </div>
+          <h3>Action pulses</h3>
+          <p>Every tool call travels its path as a labeled pulse of light — Read, Edit, Bash, Grep — and failures pulse red so you notice.</p>
+        </div>
+
+        <div class="feature-card amber">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" opacity="0.6"/></svg>
+          </div>
+          <h3>Waiting radar</h3>
+          <p>Halos read the room at a glance: green is working, amber is waiting for you, red means a session needs permission.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 10 11 4 5"/><path d="M12 19h8"/></svg>
+          </div>
+          <h3>Prompt from the UI</h3>
+          <p>Type straight into a session's tmux pane without alt-tabbing back to the terminal it's actually running in.</p>
+        </div>
+
+        <div class="feature-card violet">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--violet)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          </div>
+          <h3>Start sessions from the graph<span class="badge-new">NEW 0.4.5</span></h3>
+          <p>Spin up a fresh Claude Code session directly from the canvas — no need to leave the view to begin one.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+          </div>
+          <h3>Inspect &amp; copy everything</h3>
+          <p>Every node opens into paste-runnable commands and git-style diffs, ready to drop straight back into your shell.</p>
+        </div>
+
+        <div class="feature-card violet">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--violet)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21 15 15"/><circle cx="10" cy="10" r="7"/></svg>
+          </div>
+          <h3>Semantic zoom</h3>
+          <p>Zoom out and whole directories collapse into single aggregate nodes, so busy sessions stay legible at any scale.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-5 3 3 5-7"/></svg>
+          </div>
+          <h3>Late join &amp; persistence</h3>
+          <p>Open claudebrain mid-session and the whole graph rebuilds from history — you never miss the first act.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-it-works">
+      <div class="section-head">
+        <span class="eyebrow">Getting started</span>
+        <h2>How it works</h2>
+        <p>Three steps between here and watching your first session bloom.</p>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <h3>Download &amp; open ClaudeBrain</h3>
+          <p>Grab the signed, notarized Universal build above and launch it like any other Mac app.</p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <h3>Click Install Hooks</h3>
+          <p>One dialog wires up Claude Code's hooks — your existing settings are backed up automatically first.</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <h3>Start any session</h3>
+          <p>Run Claude Code as usual and watch it bloom into a live node cluster on the canvas.</p>
+        </div>
+      </div>
+
+      <div class="install-block" id="install">
+        <p class="label">Prefer Homebrew?</p>
+        <div class="code-row">
+          <code id="brew-cmd">brew tap softorize/tap &amp;&amp; brew install claudebrain</code>
+          <button class="copy-btn" id="copy-btn" type="button" aria-label="Copy install command to clipboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copy-label">Copy</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <h2>Your terminal is already thinking.</h2>
+      <p>Give it a window.</p>
+      <div class="btn-row">
+        <a class="btn btn-primary" href="https://github.com/softorize/claudebrain/releases/latest/download/ClaudeBrain.dmg">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13"/><path d="m6 11 6 6 6-6"/><path d="M4 20h16"/></svg>
+          Download for macOS
+        </a>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap footer-row">
+    <div class="footer-left">
+      <img src="assets/icon.png" alt="" width="20" height="20" />
+      <span>MIT License · <a href="https://github.com/softorize" style="color:var(--ink-dim); text-decoration:none;">Softorize</a></span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/softorize/claudebrain">GitHub</a>
+      <a href="https://github.com/softorize/claudebrain/releases/latest/download/ClaudeBrain.dmg">Download</a>
+      <a href="https://github.com/softorize/claudebrain/blob/main/LICENSE">License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- copy button ----------
+  var copyBtn = document.getElementById('copy-btn');
+  var copyLabel = document.getElementById('copy-label');
+  var brewCmd = document.getElementById('brew-cmd').textContent;
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function(){
+      var done = function(){
+        copyLabel.textContent = 'Copied!';
+        setTimeout(function(){ copyLabel.textContent = 'Copy'; }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(brewCmd).then(done, done);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = brewCmd;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e){}
+        document.body.removeChild(ta);
+        done();
+      }
+    });
+  }
+
+  // ---------- ambient synapse canvas ----------
+  var canvas = document.getElementById('bg');
+  var ctx = canvas.getContext('2d');
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var W = 0, H = 0, DPR = 1;
+  var nodes = [];
+  var pulses = [];
+  var NODE_COUNT = 58;
+  var COLORS = ['#38bdf8', '#a78bfa', '#38bdf8', '#38bdf8', '#f59e0b', '#38bdf8', '#f87171'];
+
+  function rand(min, max){ return min + Math.random() * (max - min); }
+
+  // ---- hero legibility vignette ----
+  // Nodes/edges/pulses drifting directly behind the hero wordmark, subline
+  // and CTA column are dimmed smoothly so the copy always stays legible,
+  // without hard-clipping the canvas or thinning it out elsewhere. A second,
+  // full-width strip covers the topbar row (logo + nav links live edge to
+  // edge there, not just in the centered hero column).
+  function heroColumnDim(x, y){
+    var cx = W / 2;
+    var halfW = Math.min(W * 0.46, 360);
+    var y0 = 0, y1 = Math.min(H - 16, 860);
+    if (y <= y0 || y >= y1) return 1;
+    var nx = Math.abs(x - cx) / halfW;
+    if (nx >= 1) return 1;
+    var ny = (y - y0) / (y1 - y0);
+    var vFall = Math.sin(ny * Math.PI); // 0 at band edges, 1 mid-band
+    var hFall = 1 - nx * nx; // 1 at center, 0 at band edge
+    var inside = Math.max(0, vFall * hFall);
+    return 1 - inside * 0.8;
+  }
+  function topbarDim(x, y){
+    var ty1 = 72;
+    if (y >= ty1) return 1;
+    var f = 1 - (y / ty1);
+    return 1 - f * 0.62;
+  }
+  function heroDim(x, y){
+    return Math.min(heroColumnDim(x, y), topbarDim(x, y));
+  }
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  function makeNodes(){
+    nodes = [];
+    for (var i = 0; i < NODE_COUNT; i++){
+      var r = rand(1.4, 3.6);
+      nodes.push({
+        x: rand(0, W),
+        y: rand(0, H),
+        vx: rand(-0.055, 0.055),
+        vy: rand(-0.04, 0.04),
+        r: r,
+        color: COLORS[Math.floor(Math.random()*COLORS.length)],
+        phase: rand(0, Math.PI*2),
+        speed: rand(0.4, 0.9)
+      });
+    }
+  }
+
+  function neighborLinks(){
+    // precompute a sparse set of edges (each node linked to ~2 nearest)
+    var links = [];
+    for (var i = 0; i < nodes.length; i++){
+      var dists = [];
+      for (var j = 0; j < nodes.length; j++){
+        if (i === j) continue;
+        var dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+        dists.push({ j: j, d: dx*dx + dy*dy });
+      }
+      dists.sort(function(a,b){ return a.d - b.d; });
+      var count = 1 + Math.floor(Math.random()*2);
+      for (var k = 0; k < count && k < dists.length; k++){
+        if (dists[k].d < (280*280)) links.push([i, dists[k].j]);
+      }
+    }
+    return links;
+  }
+
+  var links = [];
+  var relinkTimer = 0;
+
+  function maybeSpawnPulse(){
+    if (Math.random() < 0.026 && links.length){
+      var l = links[Math.floor(Math.random()*links.length)];
+      pulses.push({ from: l[0], to: l[1], t: 0 });
+    }
+  }
+
+  var lastTime = 0;
+  function step(now){
+    if (!lastTime) lastTime = now;
+    var dt = Math.min(now - lastTime, 48);
+    lastTime = now;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // update node positions
+    for (var i = 0; i < nodes.length; i++){
+      var n = nodes[i];
+      n.x += n.vx * dt;
+      n.y += n.vy * dt;
+      if (n.x < -20) n.x = W + 20;
+      if (n.x > W + 20) n.x = -20;
+      if (n.y < -20) n.y = H + 20;
+      if (n.y > H + 20) n.y = -20;
+    }
+
+    relinkTimer += dt;
+    if (relinkTimer > 4200){
+      links = neighborLinks();
+      relinkTimer = 0;
+    }
+
+    // draw edges
+    ctx.lineWidth = 1;
+    for (var e = 0; e < links.length; e++){
+      var a = nodes[links[e][0]], b = nodes[links[e][1]];
+      var dx = a.x - b.x, dy = a.y - b.y;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      var alpha = Math.max(0, 0.10 - dist/280*0.10);
+      if (alpha <= 0.002) continue;
+      var eDim = heroDim((a.x+b.x)/2, (a.y+b.y)/2);
+      ctx.strokeStyle = 'rgba(140,170,220,' + (alpha*eDim).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+
+    // draw nodes
+    for (i = 0; i < nodes.length; i++){
+      n = nodes[i];
+      var pulse = 0.55 + 0.45*Math.sin(n.phase + now*0.0011*n.speed);
+      var nDim = heroDim(n.x, n.y);
+      var glowR = n.r * 7 * pulse;
+      var grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+      grad.addColorStop(0, hexToRgba(n.color, 0.35*pulse*nDim));
+      grad.addColorStop(1, hexToRgba(n.color, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, glowR, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = hexToRgba(n.color, 0.85*nDim);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // pulses traveling along edges
+    maybeSpawnPulse();
+    for (var p = pulses.length - 1; p >= 0; p--){
+      var pu = pulses[p];
+      pu.t += dt / 900;
+      if (pu.t >= 1){ pulses.splice(p, 1); continue; }
+      var na = nodes[pu.from], nb = nodes[pu.to];
+      if (!na || !nb) { pulses.splice(p, 1); continue; }
+      var px = na.x + (nb.x - na.x) * pu.t;
+      var py = na.y + (nb.y - na.y) * pu.t;
+      var pDim = heroDim(px, py);
+      var pg = ctx.createRadialGradient(px, py, 0, px, py, 6);
+      pg.addColorStop(0, 'rgba(255,255,255,' + (0.9*pDim).toFixed(3) + ')');
+      pg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = pg;
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    rafId = requestAnimationFrame(step);
+  }
+
+  function hexToRgba(hex, a){
+    var r = parseInt(hex.slice(1,3),16);
+    var g = parseInt(hex.slice(3,5),16);
+    var b = parseInt(hex.slice(5,7),16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  function drawStaticFrame(){
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 1;
+    for (var e = 0; e < links.length; e++){
+      var a = nodes[links[e][0]], b = nodes[links[e][1]];
+      var dx = a.x - b.x, dy = a.y - b.y;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      var alpha = Math.max(0, 0.09 - dist/280*0.09);
+      if (alpha <= 0.002) continue;
+      var eDim = heroDim((a.x+b.x)/2, (a.y+b.y)/2);
+      ctx.strokeStyle = 'rgba(140,170,220,' + (alpha*eDim).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    for (var i = 0; i < nodes.length; i++){
+      var n = nodes[i];
+      var nDim = heroDim(n.x, n.y);
+      var glowR = n.r * 6;
+      var grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+      grad.addColorStop(0, hexToRgba(n.color, 0.28*nDim));
+      grad.addColorStop(1, hexToRgba(n.color, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, glowR, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = hexToRgba(n.color, 0.8*nDim);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  var rafId = null;
+
+  function init(){
+    resize();
+    makeNodes();
+    links = neighborLinks();
+    if (reduceMotion){
+      drawStaticFrame();
+    } else {
+      rafId = requestAnimationFrame(step);
+    }
+  }
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      resize();
+      if (reduceMotion) drawStaticFrame();
+    }, 150);
+  });
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden && rafId){
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    } else if (!document.hidden && !reduceMotion && !rafId){
+      lastTime = 0;
+      rafId = requestAnimationFrame(step);
+    }
+  });
+
+  init();
+})();
+</script>
